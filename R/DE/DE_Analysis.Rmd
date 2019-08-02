@@ -1,0 +1,181 @@
+---
+title: "Differential Gene / Transcript Analysis"
+output: html_notebook
+---
+
+```{r Setup, include=FALSE}
+library(limma)
+dir <- "~/Desktop/ire_enrichment"
+
+write_fit <- function(fit, results=NULL, F.adjust="none", adjust="fdr", method="global", ...) {
+    if (!is(fit, "MArrayLM")) 
+        stop("fit should be an MArrayLM object")
+    if (!is.null(results) && !is(results, "TestResults")) 
+        stop("results should be a TestResults object")
+    if (is.null(fit$t) || is.null(fit$p.value)) 
+        fit <- eBayes(fit)
+    method <- match.arg(method, c("separate", "global"))
+    p.value <- as.matrix(fit$p.value)
+    if (adjust == "none") {
+        p.value.adj <- NULL
+    }
+    else {
+        p.value.adj <- p.value
+        if (method == "separate") 
+            for (j in 1:ncol(p.value)) p.value.adj[, j] <- p.adjust(p.value[, 
+                j], method = adjust)
+        if (method == "global") 
+            p.value.adj[] <- p.adjust(p.value, method = adjust)
+    }
+    if (F.adjust == "none" || is.null(fit$F.p.value)) 
+        F.p.value.adj <- NULL
+    else F.p.value.adj <- p.adjust(fit$F.p.value, method = F.adjust)
+    
+    tab <- list()
+    tab$A <- (fit$Amean)
+    tab$Coef <- (fit$coef)
+    tab$t <- (fit$t)
+    tab$p.value <- (p.value)
+    tab$p.value.adj <- (p.value.adj)
+    tab$F <- (fit$F)
+    tab$F.p.value <- (fit$F.p.value)
+    tab$F.p.value.adj <- F.p.value.adj
+    tab$Res <- unclass(results)
+    tab$Genes <- fit$genes
+    tab <- data.frame(tab, check.names = FALSE)
+    return(tab)
+}
+```
+
+## 1. Import DGELists
+
+- Previously in the `Import_KallistoData.Rmd` file, **kallisto** count estimates at transcript-level were summarised to gene-level count estimates and saved as DGEList objects. Preliminary visualisation with PCA plots and filtering was also previously done. Here we import the DGEList objects containing filtered genes / transcripts for analysis. 
+
+```{r}
+dge_g <- readRDS(file.path(dir, "dge_filtered.rds"))
+dge_t <- readRDS(file.path(dir, "dge_t_filtered.rds"))
+
+```
+
+## 2. Setting up limma model
+
+- We will determine the DE genes and transcripts separately with *limma*. 
+- In both cases the model is based on a grouping variable `Group` which includes the **Genotype**, **Age**, and **Hypoxia/Normoxia** status. We also add the term in for **Gender** to account for any gender-specific effects on gene/transcript expression.
+
+- Gene-level analysis:
+```{r}
+design_g <- model.matrix(~0 + Group + Gender, data = dge_g$samples) %>%
+  set_colnames(gsub(pattern = "Group", replacement = "", x = colnames(.)))
+
+voomData_g <- voomWithQualityWeights(dge_g, design = design_g, plot = TRUE)
+
+contrasts_g <- makeContrasts(
+  levels = colnames(design_g), 
+  
+  # Effect of the mutation when hypoxic stress condition and age are constant:
+  normoxia_6mth_mutant_vs_wt = q96_6_0-wt_6_0,
+  normoxia_24mth_mutant_vs_wt = q96_24_0-wt_24_0,
+  hypoxia_6mth_mutant_vs_wt = q96_6_1-wt_6_1,
+  hypoxia_24mth_mutant_vs_wt = q96_24_1-wt_24_1,
+  
+  # Effect of hypoxic stress condition when mutation and age are constant:
+  wt_6mth_hypoxia_vs_normoxia = wt_6_1-wt_6_0,
+  mutant_6mth_hypoxia_vs_normoxia = q96_6_1-q96_6_0,
+  wt_24mth_hypoxia_vs_normoxia = wt_24_1-wt_24_0,
+  mutant_24mth_hypoxia_vs_normoxia = q96_24_1-q96_24_0,
+  
+  # Effect of aging when mutation and hypoxic stress condition are constant:
+  normoxia_wtAging = wt_24_0-wt_6_0,
+  hypoxia_wtAging = wt_24_1-wt_6_1,
+  normoxia_mutantAging = q96_24_0-q96_6_0,
+  hypoxia_mutantAging = q96_24_1-q96_6_1
+)
+
+fit_g <- lmFit(voomData_g, design_g) %>%
+  contrasts.fit(contrasts_g) %>%
+  eBayes(robust = TRUE)
+
+results_g <- decideTests(fit_g, p.value = 0.05, adjust.method = "fdr", method = "global")
+summary(results_g)
+
+
+write_fit_g <- write_fit(fit_g, results_g, method = "global", adjust = "fdr")
+
+```
+
+- Transcript-level analysis
+
+```{r}
+design_t <- model.matrix(~0 + Group + Gender, data = dge_t$samples) %>%
+  set_colnames(gsub(pattern = "Group", replacement = "", x = colnames(.)))
+
+voomData_t <- voomWithQualityWeights(dge_t, design = design_t, plot = TRUE)
+
+contrasts_t <- makeContrasts(
+  levels = colnames(design_t), 
+  
+  # Effect of the mutation when hypoxic stress condition and age are constant:
+  normoxia_6mth_mutant_vs_wt = q96_6_0-wt_6_0,
+  normoxia_24mth_mutant_vs_wt = q96_24_0-wt_24_0,
+  hypoxia_6mth_mutant_vs_wt = q96_6_1-wt_6_1,
+  hypoxia_24mth_mutant_vs_wt = q96_24_1-wt_24_1,
+  
+  # Effect of hypoxic stress condition when mutation and age are constant:
+  wt_6mth_hypoxia_vs_normoxia = wt_6_1-wt_6_0,
+  mutant_6mth_hypoxia_vs_normoxia = q96_6_1-q96_6_0,
+  wt_24mth_hypoxia_vs_normoxia = wt_24_1-wt_24_0,
+  mutant_24mth_hypoxia_vs_normoxia = q96_24_1-q96_24_0,
+  
+  # Effect of aging when mutation and hypoxic stress condition are constant:
+  normoxia_wtAging = wt_24_0-wt_6_0,
+  hypoxia_wtAging = wt_24_1-wt_6_1,
+  normoxia_mutantAging = q96_24_0-q96_6_0,
+  hypoxia_mutantAging = q96_24_1-q96_6_1
+)
+
+fit_t <- lmFit(voomData_t, design_t) %>%
+  contrasts.fit(contrasts_t) %>%
+  eBayes(robust = TRUE)
+
+results_t <- decideTests(fit_t, p.value = 0.05, adjust.method = "fdr", method = "global")
+summary(results_t)
+
+
+write_fit_t <- write_fit(fit_t, results_t, method = "global", adjust = "fdr")
+```
+
+## 3. Overrepresentation analysis
+
+Gene-level
+```{r}
+de_entrez <- list(
+  normoxia_6mth_mutant_vs_wt = write_fit_g %>% 
+    dplyr::filter(p.value.adj.normoxia_6mth_mutant_vs_wt < 0.05) %>%
+    tidyr::unnest(Genes.entrezid),
+  normoxia_24mth_mutant_vs_wt = write_fit_g %>%
+    dplyr::filter(p.value.adj.normoxia_24mth_mutant_vs_wt < 0.05) %>%
+    tidyr::unnest(Genes.entrezid),
+  wt_6mth_hypoxia_vs_normoxia = write_fit_g %>%
+    dplyr::filter(p.value.adj.wt_6mth_hypoxia_vs_normoxia < 0.05) %>%
+    tidyr::unnest(Genes.entrezid),
+  normoxia_wtAging = write_fit_g %>%
+    dplyr::filter(p.value.adj.normoxia_wtAging < 0.05) %>%
+    tidyr::unnest(Genes.entrezid)
+) %>% lapply(function(x){x %>% dplyr::filter(!is.na(Genes.entrezid)) %>% use_series("Genes.entrezid") %>% unique})
+
+go_res <- de_entrez %>% lapply(function(x){
+  x %>%
+    goana(de = ., universe = dge_g$genes$entrezid, species = "Dr")%>%
+    mutate(FDR = p.adjust(P.DE, method = "fdr"))%>%
+    arrange(P.DE)
+})
+
+deat6mth <- write_fit_g %>% dplyr::filter(p.value.adj.normoxia_6mth_mutant_vs_wt < 0.05) %>%
+  tidyr::unnest(Genes.entrezid)
+
+
+
+goana_normoxia_6mth_mutant_vs_wt <-  goana(de = deat6mth$Genes.entrezid, universe = dge_g$genes$entrezid, species = "Dr")
+
+```
+
