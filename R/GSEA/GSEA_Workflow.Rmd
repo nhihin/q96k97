@@ -1,0 +1,316 @@
+---
+title: "GSEA Analysis"
+output: html_notebook
+---
+
+```{r Setup, include=FALSE,message=FALSE,warning=FALSE}
+# Load packages:
+library(GSEABase)
+library(dplyr)
+library(readr)
+library(magrittr)
+library(tibble)
+library(reshape2)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(org.Dr.eg.db)
+library(biomaRt)
+library(limma)
+library(here)
+library(stringr)
+
+```
+
+
+## 0. Introduction
+
+The purpose of this analysis is to determine enriched gene sets in the Q96K97 dataset. 
+
+In this analysis, we will need the voom object, design matrix, and contrasts matrix previously made in the differential gene expression analysis using *limma*.
+
+```{r}
+v <- readRDS(here("R","DE","voomData_g.rds"))  # Voom object
+design <- readRDS(here("R","DE","design_g.rds"))  # Design matrix
+contrasts <- readRDS(here("R","DE","contrasts_g.rds"))  # Contrasts matrix
+```
+
+
+
+## 1. Import gene sets 
+
+The .gmt files from GSEA MSigDB were downloaded and imported into R. 
+
+```{r}
+genesetsDir <- here("R", "GSEA", "data")
+
+h <- getGmt(file.path(genesetsDir, "h.all.v6.0.entrez.gmt"))    # Hallmark gene sets
+c1 <- getGmt(file.path(genesetsDir, "c1.all.v6.0.entrez.gmt"))  # positional gene sets
+c2 <- getGmt(file.path(genesetsDir, "c2.all.v6.0.entrez.gmt"))  # curated gene sets
+c3 <- getGmt(file.path(genesetsDir, "c3.all.v6.0.entrez.gmt"))  # motif gene sets
+c4 <- getGmt(file.path(genesetsDir, "c4.all.v6.0.entrez.gmt"))  # computational gene sets
+c5 <- getGmt(file.path(genesetsDir, "c5.all.v6.0.entrez.gmt"))  # GO gene sets
+c6 <- getGmt(file.path(genesetsDir, "c6.all.v6.0.entrez.gmt"))  # oncogenic signatures gene sets
+c7 <- getGmt(file.path(genesetsDir, "c7.all.v6.0.entrez.gmt"))  # immunologic signatures gene sets
+
+# Convert each gene sets to list where the name of each list is the gene set
+# name and the list items are the entrezgenes. 
+h_l <- geneIds(h) %>% as.list
+c1_l <- geneIds(c1) %>% as.list
+c2_l <- geneIds(c2) %>% as.list
+c3_l <- geneIds(c3) %>% as.list
+c4_l <- geneIds(c4) %>% as.list
+c5_l <- geneIds(c5) %>% as.list
+c6_l <- geneIds(c6) %>% as.list
+c7_l <- geneIds(c7) %>% as.list
+
+# Bind the list of gene sets so that each list becomes a data.frame.
+h_df <- lapply(h_l, cbind)
+c1_df <- lapply(c1_l, cbind)
+c2_df <- lapply(c2_l, cbind)
+c3_df <- lapply(c3_l, cbind)
+c4_df <- lapply(c4_l, cbind)
+c5_df <- lapply(c5_l, cbind)
+c6_df <- lapply(c6_l, cbind)
+c7_df <- lapply(c7_l, cbind)
+```
+
+
+## 2. Convert human entrezgenes in MSigDB gene sets to zebrafish ensembl IDs
+
+The IDs in the MSigDB gene sets are human entrezgene IDs which need to be converted into zebrafish Ensembl gene IDs. We will prepare a data.frame `zebAndHumanEnsGenes` to map between the IDs.
+
+```{r}
+# Human entrez and ensembl IDs:
+humanEntrezEns <- org.Hs.egENSEMBL %>% 
+  as.data.frame %>%
+  set_colnames(c("human_entrezgene", "human_ensembl"))
+
+# Zebrafish ensembl IDs:
+zebEns <- org.Dr.egENSEMBL %>%
+  as.data.frame %>%
+  set_colnames(c("zeb_entrezgene", "zeb_ensembl"))
+
+# Create a data.frame to map between human entrezgenes and zebrafish ensembl IDs.
+# BioMart only includes homolog mappings for ensembl IDs which is why we need to 
+# retrieve human ensembl IDs, then join to the humanEntrezEns data.frame,
+# in order to get the desired human entrezgenes to zebrafish ensembl ID mapping. 
+zebMart <- useMart("ENSEMBL_MART_ENSEMBL", "drerio_gene_ensembl")
+getFromBiomart <- c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene")
+zebAndHumanEnsGenes <- getBM(getFromBiomart, values = unique(zebEns$zeb_ensembl), mart = zebMart) %>%
+  set_colnames(c("zebrafish_ensembl", "human_ensembl")) %>%
+  left_join(humanEntrezEns, by = "human_ensembl") %>%
+  dplyr::select(-human_ensembl) %>% 
+  dplyr::filter(complete.cases(.))
+
+```
+
+This mapping in `zebAndHumanEnsGenes` contains `r (zebAndHumanEnsGenes %>% lapply(function(x){x%>%unique%>%length}))[[1]]` zebrafish Ensembl IDs to `r (zebAndHumanEnsGenes %>% lapply(function(x){x%>%unique%>%length}))[[2]]` human entrezgene IDs. 
+
+The following function is applied to the gene sets to map the IDs in the gene sets from human entrezgene to zebrafish ensembl. 
+
+```{r, eval=FALSE,message=FALSE,warning=FALSE}
+mapHumanGS2Zebrafish <- function(x) {
+  x %>% 
+    as.data.frame %>% 
+    set_colnames("human_entrezgene") %>%
+    left_join(zebAndHumanEnsGenes, by = "human_entrezgene") %>% 
+    dplyr::filter(complete.cases(.)) %>%
+    dplyr::select(-human_entrezgene) %>%
+    as.list %>%
+    unname %>%
+    .[[1]] %>%
+    unique
+}
+
+h_mapped <- lapply(h_df, mapHumanGS2Zebrafish)
+c1_mapped <- lapply(c1_df, mapHumanGS2Zebrafish)
+c2_mapped <- lapply(c2_df, mapHumanGS2Zebrafish) 
+c3_mapped <- lapply(c3_df, mapHumanGS2Zebrafish)
+c4_mapped <- lapply(c4_df, mapHumanGS2Zebrafish)
+c5_mapped <- lapply(c5_df, mapHumanGS2Zebrafish)
+c6_mapped <- lapply(c6_df, mapHumanGS2Zebrafish)
+c7_mapped <- lapply(c7_df, mapHumanGS2Zebrafish)
+```
+
+Because the mapping takes a while to run, I've saved the mapped genesets as R objects, which will now be imported:
+
+```{r Saved-Msigdb-mapped-gene-sets}
+h_mapped <- readRDS(file.path(genesetsDir, "ens_h_mapped.rds"))
+c1_mapped <- readRDS(file.path(genesetsDir, "ens_c1_mapped.rds"))
+c2_mapped <- readRDS(file.path(genesetsDir, "ens_c2_mapped.rds"))
+c3_mapped <- readRDS(file.path(genesetsDir, "ens_c3_mapped.rds"))
+c4_mapped <- readRDS(file.path(genesetsDir, "ens_c4_mapped.rds"))
+c5_mapped <- readRDS(file.path(genesetsDir, "ens_c5_mapped.rds"))
+c6_mapped <- readRDS(file.path(genesetsDir, "ens_c6_mapped.rds"))
+c7_mapped <- readRDS(file.path(genesetsDir, "ens_c7_mapped.rds"))
+```
+
+## 3. Build indexes
+
+We now need to build an index for each collection of gene sets. 
+The index is basically the ensembl IDs of the gene sets to the corresponding row number 
+in the voom object `v` previously generated in the differential gene expression analysis. 
+```{r}
+buildGenesetIndex <- function(x, voomObj = v){
+  limma::ids2indices(x, rownames(voomObj))
+}
+
+h_idx <- buildGenesetIndex(h_mapped)
+c1_idx <- buildGenesetIndex(c1_mapped)
+c2_idx <- buildGenesetIndex(c2_mapped)
+c3_idx <- buildGenesetIndex(c3_mapped)
+c4_idx <- buildGenesetIndex(c4_mapped)
+c5_idx <- buildGenesetIndex(c5_mapped)
+c6_idx <- buildGenesetIndex(c6_mapped)
+c7_idx <- buildGenesetIndex(c7_mapped)
+```
+
+The MSigDB indexes are ready for use in our analysis. We will also define some custom gene sets corresponding to IRE-containing genes (for details on how these were obtained, see `IREGenes/Identifying_IREGenes.Rmd`), as well as subsetting the KEGG gene sets from `c2_idx`. 
+
+**KEGG Genesets**
+```{r}
+kegg_idx <- c2_idx[(names(c2_idx) %>% str_detect("KEGG"))]
+```
+
+**IRE-containing genes**
+```{r}
+# Read in the IRE GRanges objects which were made from the SIRES output. 
+ireUtr3 <- readRDS(here("R","IREGenes","data","ireUtr3.rds"))
+ireUtr5 <- readRDS(here("R","IREGenes","data","ireUtr5.rds"))
+
+# Extract the Ensembl ids of the 3' and 5' IRE genes and store them as a list of gene sets. 
+# We will distinguish between "all" predicted IRE-containing genes and only the "high-quality" ones.
+ireGenes <- list(
+  ire3_all <- ireUtr3$gene_id %>% unique,
+  ire5_all <- ireUtr5$gene_id %>% unique,
+  ire3_hq <- ireUtr3 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique,
+  ire5_hq <- ireUtr5 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique
+) %>% set_names(c("ire3_all", "ire5_all", "ire3_hq", "ire5_hq"))
+
+# Create index for limma functions. 
+ireGenes_idx <- buildGenesetIndex(ireGenes)
+```
+
+
+## 4. Run gene set test methods
+
+We will be using the **fry**, **fgsea**, and **camera** methods to perform GSEA on the gene sets, and then combine the results (*p*-values) of each individual gene test using Wilkinson's method. Adjustment for multiple testing across all tests will be done using FDR and Bonferroni. The function for doing all this is in the `combinedGSEA.R` file.
+
+```{r,eval=FALSE}
+source(here("R","GSEA","combinedGSEA.R"))
+```
+
+We will run the `combinedGSEA()` function for each gene set collection, on the voom object `v` as well as the `design` and `contrasts` matrix from the DE analysis. 
+
+```{r}
+gseaResults_kegg <- combinedGSEA(v, kegg_idx, design, contrasts)
+gseaResults_ire <- combinedGSEA(v, ireGenes_idx, design, contrasts)
+gseaResults_h <- combinedGSEA(v, h_idx, design, contrasts)
+
+```
+
+## 5. Extract iron gene sets
+
+```{r}
+ironSets <- list(
+  c5_GO_2_IRON_2_SULFUR_CLUSTER_BINDING = c5_mapped$GO_2_IRON_2_SULFUR_CLUSTER_BINDING,
+  c5_GO_4_IRON_4_SULFUR_CLUSTER_BINDING = c5_mapped$GO_4_IRON_4_SULFUR_CLUSTER_BINDING,
+  c5_GO_CELLULAR_IRON_ION_HOMEOSTASIS = c5_mapped$GO_CELLULAR_IRON_ION_HOMEOSTASIS,
+  c5_GO_HEME_METABOLIC_PROCESS = c5_mapped$GO_HEME_METABOLIC_PROCESS,
+  c5_GO_HEME_BIOSYNTHETIC_PROCESS = c5_mapped$GO_HEME_BIOSYNTHETIC_PROCESS,
+  c5_GO_HEMOGLOBIN_COMPLEX = c5_mapped$GO_HEMOGLOBIN_COMPLEX,
+  c5_GO_IRON_COORDINATION_ENTITY_TRANSPORT = c5_mapped$GO_IRON_COORDINATION_ENTITY_TRANSPORT,
+  c5_GO_IRON_ION_BINDING = c5_mapped$GO_IRON_ION_BINDING,
+  c5_GO_IRON_ION_HOMEOSTASIS = c5_mapped$GO_IRON_ION_HOMEOSTASIS,
+  c5_GO_IRON_ION_IMPORT = c5_mapped$GO_IRON_ION_IMPORT,
+  c5_GO_IRON_ION_TRANSPORT = c5_mapped$GO_IRON_ION_TRANSPORT,
+  c5_GO_OXIDOREDUCTASE_ACTIVITY_ACTING_ON_A_HEME_GROUP_OF_DONORS = c5_mapped$GO_OXIDOREDUCTASE_ACTIVITY_ACTING_ON_A_HEME_GROUP_OF_DONORS,
+  c5_GO_RESPONSE_TO_IRON_ION = c5_mapped$GO_RESPONSE_TO_IRON_ION,
+  h_HEME_METABOLISM = h_mapped$HALLMARK_HEME_METABOLISM,
+  c2_REACTOME_IRON_UPTAKE_AND_TRANSPORT = c2_mapped$REACTOME_IRON_UPTAKE_AND_TRANSPORT
+)
+```
+
+```{r}
+ironSets_idx <- ids2indices(ironSets, rownames(v))
+```
+
+```{r}
+ironRes <- gseaResults(v, ironSets_idx, design, contrasts)
+
+ironRes2<- ironRes%>% lapply(function(x){
+  x$fgsea %<>% dplyr::rename(Geneset = pathway)
+  x %<>% lapply(function(y){
+    y %>% dplyr::select(Geneset, pval)
+  })
+})
+
+
+ironRes3 <- ironRes2 %>% lapply(function(x){
+  x %>% do.call("rbind", .) %>%
+    group_by(Geneset) %>%
+    dplyr::summarise(wilkinsonp = wilkinsonp(pval)$p) %>%
+    dplyr::mutate(fdr = p.adjust(wilkinsonp, method = "fdr"),
+                  bonferroni = p.adjust(wilkinsonp, method = "bonferroni"))%>%
+    dplyr::arrange(wilkinsonp)
+})
+
+ironRes4 <- ironRes3 %>% bind_rows(.id = "id") %>%
+  mutate(fdr = p.adjust(wilkinsonp, "BH"),
+         bonferroni = p.adjust(wilkinsonp, "holm")) %>%
+  split(f=.$id)
+```
+
+Comparison of gene overlap between our IRE gene sets and existing gene sets related to iron metabolism. 
+
+```{r, fig.width=11}
+names(ireGenes) <- c("ire3_all","ire5_all", "ire3_hq", "ire5_hq")
+
+testx <- ironSets %>% lapply(function(x){
+  overlap <- list(
+  with3ire = sum(x %in% ireGenes$ire3_all),
+  with5ire = sum(x %in% ireGenes$ire5_all),
+  noIre = sum(!(x %in% ireGenes$ire3_all | x %in% ireGenes$ire5_all))
+  )
+}) %>% lapply(function(x){
+    x %>% bind_rows
+}) %>% 
+  do.call("rbind",.) %>% 
+  mutate(geneset = names(ironSets)) %>%
+  bind_rows(data.frame(
+    with3ire = length(ireGenes$ire3_all),
+    with5ire = length(ireGenes$ire5_all),
+    noIre = 0,
+    geneset = "- GRCz11 Zebrafish Genes - All Predicted IREs"
+  )) %>% 
+  bind_rows(data.frame(
+    with3ire = ireUtr3 %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length,
+    with5ire = ireUtr5 %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length,
+    noIre = 0,
+    geneset = "- GRCz11 Zebrafish Genes - High Quality Predicted IREs"
+  )) %>%
+  mutate(geneset = gsub(x = geneset, pattern = "_", replacement = " "))%>%
+  melt 
+  
+
+compPlot <- testx %>% ggplot(aes(x = str_to_title(stringr::str_wrap(geneset, 20)), 
+                     y = value, 
+                     fill = variable)) + 
+  geom_col() +
+  theme(aspect.ratio = 0.7, 
+        axis.text.x =  element_text(size= 35), 
+        axis.title.x = element_text(size= 30),
+        axis.title.y = element_text(size = 30), 
+        legend.text = element_text(size = 20), 
+        legend.title = element_text(size=30),
+        axis.text.y = element_text(color = "grey20", size = 16)) + 
+  coord_flip() +
+  scale_fill_manual(values=c("#FBB829", "#FF0066", "#dddddd"), labels =c("3' IRE", "5' IRE", "No IRE")) +
+  labs(y = "Number of genes", x = "Gene set", fill = "Gene\nhas\nIRE?") 
+
+#export::graph2ppt(compPlot, "~/Desktop/ire_enrichment/comparison")
+
+compPlot
+
+```
+
