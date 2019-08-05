@@ -3,12 +3,15 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-```{r include=FALSE, message=FALSE, warning=FALSE}
+```{r Setup, include=FALSE, message=FALSE, warning=FALSE}
 # Load packages
 library(limma)
 library(here)
 library(openxlsx)
 library(ggplot2)
+library(stringr)
+library(purrr)
+library(tibble)
 
 # ggplot2 theme
 theme_set(theme_bw())
@@ -17,7 +20,10 @@ theme_set(theme_bw())
 # Gene set collections mapped to zebrafish Ensembl IDs:
 h_mapped <- readRDS(here("R","GSEA","data","ens_h_mapped.rds"))  # Hallmark Gene set collection 
 c2_mapped <- readRDS(here("R","GSEA","data","ens_c2_mapped.rds"))  # Curated Gene set collection
+c3_mapped <- readRDS(here("R","GSEA","data","ens_c3_mapped.rds"))  # Motif Gene set collection
 c5_mapped <- readRDS(here("R","GSEA","data","ens_c5_mapped.rds"))  # Gene Ontology Gene set collection 
+ireGenes <- readRDS(here("R","GSEA","data","ireGenes.rds")) # Genes we predicted to contain IREs
+
 
 # DE analysis objects
 v <- readRDS(here("R","DE","data","voomData_g.rds"))  # voom object
@@ -37,8 +43,6 @@ The approach is as follows:
 - Load in relevant gene set collections from MSigDB.
 - Get them into a format suitable for performing Fisher's exact test to test whether they are enriched for IRE-containing genes. 
 - Results displayed on a bar chart. 
-
----
 
 The motivation for doing this analysis comes from an interesting observation using the naive approach of searching MSigDB for all gene sets with **iron** or **heme** in their name and seeing the overlap in genes between these gene sets and the IRE-containing genesets we identified. 
 
@@ -69,6 +73,7 @@ head(ironSets_idx,2)
 
 We used a gene set enrichment analysis approach to test for whether these iron-related gene sets were enriched in our DE results.
 
+
 ```{r, eval=FALSE}
 source(here("R","GSEA","combinedGSEA.R"))
 
@@ -85,8 +90,7 @@ gseaResults_ironSets$combTest$normoxia_6mth_mutant_vs_wt
 Overall, the figure below indivcates poor overlap between existing gene sets and our IRE-containing gene sets. However, to really see how our IRE genesets relate to existing gene sets, we need to do a more comprehensive test including more of the gene sets not restricted to ones related to iron metabolism. 
 
 ```{r fig.width=11, fig.cap="Comparison of gene overlap between our IRE gene sets and existing gene sets related to iron metabolism."}
-ireGenes <- readRDS(here("R","GSEA","data","ireGenes.rds"))
-
+# Create a dataframe that includes overlap between iron-related gene sets and the ireGenes.
 testx <- ironSets %>% lapply(function(x){
   overlap <- list(
   with3ire = sum(x %in% ireGenes$ire3_all),
@@ -113,6 +117,7 @@ testx <- ironSets %>% lapply(function(x){
   mutate(geneset = gsub(x = geneset, pattern = "_", replacement = " "))%>%
   melt 
 
+# Create a stacked bar chart
 compPlot <- testx %>% ggplot(aes(x = str_to_title(stringr::str_wrap(geneset, 20)), 
                      y = value, 
                      fill = variable)) + 
@@ -124,7 +129,7 @@ compPlot <- testx %>% ggplot(aes(x = str_to_title(stringr::str_wrap(geneset, 20)
         legend.text = element_text(size = 20), 
         legend.title = element_text(size=30),
         axis.text.y = element_text(color = "grey20", size = 16)) + 
-  coord_flip() +
+  coord_flip() +  # Axis labels too long to be readable so this helps.
   scale_fill_manual(values=c("#FBB829", "#FF0066", "#dddddd"), labels =c("3' IRE", "5' IRE", "No IRE")) +
   labs(y = "Number of genes", x = "Gene set", fill = "Gene\nhas\nIRE?") 
 
@@ -132,4 +137,109 @@ compPlot
 
 ```
 
+
+
+
+
+## 1. Relevant gene sets
+
+We will be using the following gene set collections from **MSigDB**:
+
+- **Hallmark gene sets** (**H**) are coherently expressed signatures derived by aggregating many MSigDB gene sets to represent well-defined biological states or processes.
+- **Curated gene sets** (**C2**) are from online pathway databases, publications in PubMed, and knowledge of domain experts.
+- **Motif gene sets** (**C3**) are based on conserved cis-regulatory motifs from a comparative analysis of the human, mouse, rat, and dog genomes.
+- **Gene ontology gene sets** (**C5**) consist of genes annotated by the same GO terms. 
+
+The gene set collections mapped to zebrafish Ensembl IDs have been pre-loaded for this analysis. Each collection is a named list of gene sets, with each gene set containing Ensembl IDs of genes in that set. We will convert all lists into list column structures used in the *tibble* package. 
+
+```{r}
+h_tib <- h_mapped %>% tibble %>% set_colnames(c("ids")) %>% mutate(geneset = names(h_mapped), source = "h") 
+c2_tib <- c2_mapped %>% tibble %>% set_colnames(c("ids")) %>% mutate(geneset = names(c2_mapped), source = "c2")
+c3_tib <- c3_mapped %>% tibble %>% set_colnames(c("ids")) %>% mutate(geneset = names(c3_mapped), source = "c3")
+c5_tib <- c5_mapped %>% tibble %>% set_colnames(c("ids")) %>% mutate(geneset = names(c5_mapped), source = "c5")
+
+gs <- bind_rows(h_tib, c2_tib, c3_tib, c5_tib)
+
+gs
+```
+
+We previously loaded the `ireGenes` R object, which has the following structure:
+```{r}
+ireGenes%>%str
+
+allIREGenes <- c(ireGenes$ire3_all, ireGenes$ire5_all)
+
+allIREGenes %>% head
+```
+
+## 2. Compute gene overlap with IRE genesets
+
+We wish to see the overlap between the genesets in `gs` with the `ireGenes`. We will add this information into the `gs` tibble.
+
+```{r}
+gs %<>% rowwise() %>% mutate(
+  n = length(ids),  # Number of genes in the geneset
+  n_with_ire = sum(ids %in% allIREGenes),  # Number of genes in the gene set which have predicted IREs
+  n_without_ire = (n - n_with_ire),
+  universe_with_ire = sum(rownames(v) %in% allIREGenes & !(rownames(v) %in% ids)), 
+  universe_without_ire = (length(rownames(v)) - universe_with_ire)
+) %>% ungroup()
+
+gs
+```
+
+## 3. Contingency tables
+
+Create contingency table for each gene set. We will store this in a list of matrices `gs_mat`:
+```{r}
+gs_mat <- gs %>% 
+  dplyr::select(n_with_ire,
+                n_without_ire, 
+                universe_with_ire, 
+                universe_without_ire) %>% 
+  apply(X = ., MARGIN = 1, FUN = function(x){
+    x %>% 
+      matrix(2,2) %>% 
+      t %>% 
+      list()
+  }) %>% set_names(gs$geneset) %>% 
+  lapply(function(x){
+    x %>% .[[1]]
+  })
+
+gs_mat[1:3]
+```
+
+## 4. Fisher's exact test
+
+On each contingency table, we will run Fisher's exact test. 
+We then apply FDR correction to adjust the raw *p*-values for multiple testing. 
+
+```{r}
+fisher_res <- gs_mat %>% lapply(function(x){
+  x %>% fisher.test()
+})
+
+fisher_res_p <- fisher_res %>% lapply(function(x){x$p.value})
+
+gs %<>% mutate(fisher_p = fisher_res_p%>%unlist%>%unname) %>%
+  mutate(fdr = p.adjust(fisher_p, "fdr"))
+
+# gs %>% saveRDS(here("R","GSEA","results","gs.rds"))
+```
+
+## 5. Results
+
+The following table shows the top 50 gene sets enriched in IRE genesets, ranked by Fisher's exact test *p*-values:
+
+```{r}
+ gs %>% arrange(fisher_p) %>% dplyr::select(-ids) %>% head(50)
+```
+
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
 
