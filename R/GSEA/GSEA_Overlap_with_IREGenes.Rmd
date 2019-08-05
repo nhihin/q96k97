@@ -1,0 +1,135 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r include=FALSE, message=FALSE, warning=FALSE}
+# Load packages
+library(limma)
+library(here)
+library(openxlsx)
+library(ggplot2)
+
+# ggplot2 theme
+theme_set(theme_bw())
+
+# Load objects required for this analysis. 
+# Gene set collections mapped to zebrafish Ensembl IDs:
+h_mapped <- readRDS(here("R","GSEA","data","ens_h_mapped.rds"))  # Hallmark Gene set collection 
+c2_mapped <- readRDS(here("R","GSEA","data","ens_c2_mapped.rds"))  # Curated Gene set collection
+c5_mapped <- readRDS(here("R","GSEA","data","ens_c5_mapped.rds"))  # Gene Ontology Gene set collection 
+
+# DE analysis objects
+v <- readRDS(here("R","DE","data","voomData_g.rds"))  # voom object
+design <- readRDS(here("R","DE","data","design_g.rds"))  # Design matrix
+contrasts <- readRDS(here("R","DE","data","contrasts_g.rds"))  # Contrasts matrix
+
+```
+
+
+## 0. Introduction
+
+The purpose of this analysis is to determine which gene sets from [MSigDB](http://software.broadinstitute.org/gsea/msigdb/index.jsp) 
+are most enriched in the genes we previously predicted to contain IREs. This is important as we wanted to see the biological relevance of the IRE-containing genes, and also their overlap in existing gene sets. 
+
+The approach is as follows:
+
+- Load in relevant gene set collections from MSigDB.
+- Get them into a format suitable for performing Fisher's exact test to test whether they are enriched for IRE-containing genes. 
+- Results displayed on a bar chart. 
+
+---
+
+The motivation for doing this analysis comes from an interesting observation using the naive approach of searching MSigDB for all gene sets with **iron** or **heme** in their name and seeing the overlap in genes between these gene sets and the IRE-containing genesets we identified. 
+
+```{r}
+ironSets <- list(
+  c5_GO_2_IRON_2_SULFUR_CLUSTER_BINDING = c5_mapped$GO_2_IRON_2_SULFUR_CLUSTER_BINDING,
+  c5_GO_4_IRON_4_SULFUR_CLUSTER_BINDING = c5_mapped$GO_4_IRON_4_SULFUR_CLUSTER_BINDING,
+  c5_GO_CELLULAR_IRON_ION_HOMEOSTASIS = c5_mapped$GO_CELLULAR_IRON_ION_HOMEOSTASIS,
+  c5_GO_HEME_METABOLIC_PROCESS = c5_mapped$GO_HEME_METABOLIC_PROCESS,
+  c5_GO_HEME_BIOSYNTHETIC_PROCESS = c5_mapped$GO_HEME_BIOSYNTHETIC_PROCESS,
+  c5_GO_HEMOGLOBIN_COMPLEX = c5_mapped$GO_HEMOGLOBIN_COMPLEX,
+  c5_GO_IRON_COORDINATION_ENTITY_TRANSPORT = c5_mapped$GO_IRON_COORDINATION_ENTITY_TRANSPORT,
+  c5_GO_IRON_ION_BINDING = c5_mapped$GO_IRON_ION_BINDING,
+  c5_GO_IRON_ION_HOMEOSTASIS = c5_mapped$GO_IRON_ION_HOMEOSTASIS,
+  c5_GO_IRON_ION_IMPORT = c5_mapped$GO_IRON_ION_IMPORT,
+  c5_GO_IRON_ION_TRANSPORT = c5_mapped$GO_IRON_ION_TRANSPORT,
+  c5_GO_OXIDOREDUCTASE_ACTIVITY_ACTING_ON_A_HEME_GROUP_OF_DONORS = c5_mapped$GO_OXIDOREDUCTASE_ACTIVITY_ACTING_ON_A_HEME_GROUP_OF_DONORS,
+  c5_GO_RESPONSE_TO_IRON_ION = c5_mapped$GO_RESPONSE_TO_IRON_ION,
+  h_HEME_METABOLISM = h_mapped$HALLMARK_HEME_METABOLISM,
+  c2_REACTOME_IRON_UPTAKE_AND_TRANSPORT = c2_mapped$REACTOME_IRON_UPTAKE_AND_TRANSPORT
+)
+
+ironSets_idx <- ids2indices(ironSets, rownames(v))
+
+head(ironSets,2)
+head(ironSets_idx,2)
+```
+
+We used a gene set enrichment analysis approach to test for whether these iron-related gene sets were enriched in our DE results.
+
+```{r, eval=FALSE}
+source(here("R","GSEA","combinedGSEA.R"))
+
+gseaResults_ironSets <- combinedGSEA(v, ironSets_idx, design, contrasts)
+# gseaResults_ironSets %>% saveRDS(here("R","GSEA","results","gseaResults_ironSets.rds"))
+# gseaResults_ironSets %>% write.xlsx(here("R","GSEA","results","gseaResults_ironSets.xlsx"))
+```
+
+Results for **6 month, normoxia, mutant vs. wild type** below indicate that while some iron-related gene sets show enrichment in this comparison while others do not. 
+```{r}
+gseaResults_ironSets$combTest$normoxia_6mth_mutant_vs_wt
+```
+
+Overall, the figure below indivcates poor overlap between existing gene sets and our IRE-containing gene sets. However, to really see how our IRE genesets relate to existing gene sets, we need to do a more comprehensive test including more of the gene sets not restricted to ones related to iron metabolism. 
+
+```{r fig.width=11, fig.cap="Comparison of gene overlap between our IRE gene sets and existing gene sets related to iron metabolism."}
+ireGenes <- readRDS(here("R","GSEA","data","ireGenes.rds"))
+
+testx <- ironSets %>% lapply(function(x){
+  overlap <- list(
+  with3ire = sum(x %in% ireGenes$ire3_all),
+  with5ire = sum(x %in% ireGenes$ire5_all),
+  noIre = sum(!(x %in% ireGenes$ire3_all | x %in% ireGenes$ire5_all))
+  )
+}) %>% lapply(function(x){
+    x %>% bind_rows
+}) %>% 
+  do.call("rbind",.) %>% 
+  mutate(geneset = names(ironSets)) %>%
+  bind_rows(data.frame(
+    with3ire = length(ireGenes$ire3_all),
+    with5ire = length(ireGenes$ire5_all),
+    noIre = 0,
+    geneset = "- GRCz11 Zebrafish Genes - All Predicted IREs"
+  )) %>% 
+  bind_rows(data.frame(
+    with3ire = ireUtr3 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length,
+    with5ire = ireUtr5 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length,
+    noIre = 0,
+    geneset = "- GRCz11 Zebrafish Genes - High Quality Predicted IREs"
+  )) %>%
+  mutate(geneset = gsub(x = geneset, pattern = "_", replacement = " "))%>%
+  melt 
+
+compPlot <- testx %>% ggplot(aes(x = str_to_title(stringr::str_wrap(geneset, 20)), 
+                     y = value, 
+                     fill = variable)) + 
+  geom_col() +
+  theme(aspect.ratio = 0.7, 
+        axis.text.x =  element_text(size= 35), 
+        axis.title.x = element_text(size= 30),
+        axis.title.y = element_text(size = 30), 
+        legend.text = element_text(size = 20), 
+        legend.title = element_text(size=30),
+        axis.text.y = element_text(color = "grey20", size = 16)) + 
+  coord_flip() +
+  scale_fill_manual(values=c("#FBB829", "#FF0066", "#dddddd"), labels =c("3' IRE", "5' IRE", "No IRE")) +
+  labs(y = "Number of genes", x = "Gene set", fill = "Gene\nhas\nIRE?") 
+
+compPlot
+
+```
+
+
