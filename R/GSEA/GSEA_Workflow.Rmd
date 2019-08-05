@@ -29,9 +29,9 @@ The purpose of this analysis is to determine enriched gene sets in the Q96K97 da
 In this analysis, we will need the voom object, design matrix, and contrasts matrix previously made in the differential gene expression analysis using *limma*.
 
 ```{r}
-v <- readRDS(here("R","DE","voomData_g.rds"))  # Voom object
-design <- readRDS(here("R","DE","design_g.rds"))  # Design matrix
-contrasts <- readRDS(here("R","DE","contrasts_g.rds"))  # Contrasts matrix
+v <- readRDS(here("R","DE","data","voomData_g.rds"))  # Voom object
+design <- readRDS(here("R","DE","data","design_g.rds"))  # Design matrix
+contrasts <- readRDS(here("R","DE","data","contrasts_g.rds"))  # Contrasts matrix
 ```
 
 
