@@ -18,7 +18,7 @@ library(biomaRt)
 library(limma)
 library(here)
 library(stringr)
-
+library(openxlsx)
 ```
 
 
@@ -168,12 +168,16 @@ c7_idx <- buildGenesetIndex(c7_mapped)
 The MSigDB indexes are ready for use in our analysis. We will also define some custom gene sets corresponding to IRE-containing genes (for details on how these were obtained, see `IREGenes/Identifying_IREGenes.Rmd`), as well as subsetting the KEGG gene sets from `c2_idx`. 
 
 **KEGG Genesets**
-```{r}
+```{r, eval=FALSE}
 kegg_idx <- c2_idx[(names(c2_idx) %>% str_detect("KEGG"))]
 ```
+```{r}
+head(kegg_idx)
+```
+
 
 **IRE-containing genes**
-```{r}
+```{r, eval=FALSE}
 # Read in the IRE GRanges objects which were made from the SIRES output. 
 ireUtr3 <- readRDS(here("R","IREGenes","data","ireUtr3.rds"))
 ireUtr5 <- readRDS(here("R","IREGenes","data","ireUtr5.rds"))
@@ -190,6 +194,9 @@ ireGenes <- list(
 # Create index for limma functions. 
 ireGenes_idx <- buildGenesetIndex(ireGenes)
 ```
+```{r}
+head(ireGenes_idx)
+```
 
 
 ## 4. Run gene set test methods
@@ -202,115 +209,27 @@ source(here("R","GSEA","combinedGSEA.R"))
 
 We will run the `combinedGSEA()` function for each gene set collection, on the voom object `v` as well as the `design` and `contrasts` matrix from the DE analysis. 
 
-```{r}
+```{r, eval=FALSE}
 gseaResults_kegg <- combinedGSEA(v, kegg_idx, design, contrasts)
 gseaResults_ire <- combinedGSEA(v, ireGenes_idx, design, contrasts)
 gseaResults_h <- combinedGSEA(v, h_idx, design, contrasts)
 
+
+# Export results
+resultsDir <- here("R","GSEA","results")
+
+# gseaResults_kegg %>% saveRDS(file.path(resultsDir, "gseaResults_kegg.rds"))
+# gseaResults_ire %>% saveRDS(file.path(resultsDir, "gseaResults_ire.rds"))
+# gseaResults_h %>% saveRDS(file.path(resultsDir, "gseaResults_h.rds"))
+
+# gseaResults_kegg %>% write.xlsx(file.path(resultsDir, "gseaResults_kegg.xlsx"))
+# gseaResults_ire %>% write.xlsx(file.path(resultsDir, "gseaResults_ire.xlsx"))
+# gseaResults_h %>% write.xlsx(file.path(resultsDir, "gseaResults_h.xlsx"))
 ```
 
-## 5. Extract iron gene sets
+## 5. Session Info
 
 ```{r}
-ironSets <- list(
-  c5_GO_2_IRON_2_SULFUR_CLUSTER_BINDING = c5_mapped$GO_2_IRON_2_SULFUR_CLUSTER_BINDING,
-  c5_GO_4_IRON_4_SULFUR_CLUSTER_BINDING = c5_mapped$GO_4_IRON_4_SULFUR_CLUSTER_BINDING,
-  c5_GO_CELLULAR_IRON_ION_HOMEOSTASIS = c5_mapped$GO_CELLULAR_IRON_ION_HOMEOSTASIS,
-  c5_GO_HEME_METABOLIC_PROCESS = c5_mapped$GO_HEME_METABOLIC_PROCESS,
-  c5_GO_HEME_BIOSYNTHETIC_PROCESS = c5_mapped$GO_HEME_BIOSYNTHETIC_PROCESS,
-  c5_GO_HEMOGLOBIN_COMPLEX = c5_mapped$GO_HEMOGLOBIN_COMPLEX,
-  c5_GO_IRON_COORDINATION_ENTITY_TRANSPORT = c5_mapped$GO_IRON_COORDINATION_ENTITY_TRANSPORT,
-  c5_GO_IRON_ION_BINDING = c5_mapped$GO_IRON_ION_BINDING,
-  c5_GO_IRON_ION_HOMEOSTASIS = c5_mapped$GO_IRON_ION_HOMEOSTASIS,
-  c5_GO_IRON_ION_IMPORT = c5_mapped$GO_IRON_ION_IMPORT,
-  c5_GO_IRON_ION_TRANSPORT = c5_mapped$GO_IRON_ION_TRANSPORT,
-  c5_GO_OXIDOREDUCTASE_ACTIVITY_ACTING_ON_A_HEME_GROUP_OF_DONORS = c5_mapped$GO_OXIDOREDUCTASE_ACTIVITY_ACTING_ON_A_HEME_GROUP_OF_DONORS,
-  c5_GO_RESPONSE_TO_IRON_ION = c5_mapped$GO_RESPONSE_TO_IRON_ION,
-  h_HEME_METABOLISM = h_mapped$HALLMARK_HEME_METABOLISM,
-  c2_REACTOME_IRON_UPTAKE_AND_TRANSPORT = c2_mapped$REACTOME_IRON_UPTAKE_AND_TRANSPORT
-)
-```
-
-```{r}
-ironSets_idx <- ids2indices(ironSets, rownames(v))
-```
-
-```{r}
-ironRes <- gseaResults(v, ironSets_idx, design, contrasts)
-
-ironRes2<- ironRes%>% lapply(function(x){
-  x$fgsea %<>% dplyr::rename(Geneset = pathway)
-  x %<>% lapply(function(y){
-    y %>% dplyr::select(Geneset, pval)
-  })
-})
-
-
-ironRes3 <- ironRes2 %>% lapply(function(x){
-  x %>% do.call("rbind", .) %>%
-    group_by(Geneset) %>%
-    dplyr::summarise(wilkinsonp = wilkinsonp(pval)$p) %>%
-    dplyr::mutate(fdr = p.adjust(wilkinsonp, method = "fdr"),
-                  bonferroni = p.adjust(wilkinsonp, method = "bonferroni"))%>%
-    dplyr::arrange(wilkinsonp)
-})
-
-ironRes4 <- ironRes3 %>% bind_rows(.id = "id") %>%
-  mutate(fdr = p.adjust(wilkinsonp, "BH"),
-         bonferroni = p.adjust(wilkinsonp, "holm")) %>%
-  split(f=.$id)
-```
-
-Comparison of gene overlap between our IRE gene sets and existing gene sets related to iron metabolism. 
-
-```{r, fig.width=11}
-names(ireGenes) <- c("ire3_all","ire5_all", "ire3_hq", "ire5_hq")
-
-testx <- ironSets %>% lapply(function(x){
-  overlap <- list(
-  with3ire = sum(x %in% ireGenes$ire3_all),
-  with5ire = sum(x %in% ireGenes$ire5_all),
-  noIre = sum(!(x %in% ireGenes$ire3_all | x %in% ireGenes$ire5_all))
-  )
-}) %>% lapply(function(x){
-    x %>% bind_rows
-}) %>% 
-  do.call("rbind",.) %>% 
-  mutate(geneset = names(ironSets)) %>%
-  bind_rows(data.frame(
-    with3ire = length(ireGenes$ire3_all),
-    with5ire = length(ireGenes$ire5_all),
-    noIre = 0,
-    geneset = "- GRCz11 Zebrafish Genes - All Predicted IREs"
-  )) %>% 
-  bind_rows(data.frame(
-    with3ire = ireUtr3 %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length,
-    with5ire = ireUtr5 %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length,
-    noIre = 0,
-    geneset = "- GRCz11 Zebrafish Genes - High Quality Predicted IREs"
-  )) %>%
-  mutate(geneset = gsub(x = geneset, pattern = "_", replacement = " "))%>%
-  melt 
-  
-
-compPlot <- testx %>% ggplot(aes(x = str_to_title(stringr::str_wrap(geneset, 20)), 
-                     y = value, 
-                     fill = variable)) + 
-  geom_col() +
-  theme(aspect.ratio = 0.7, 
-        axis.text.x =  element_text(size= 35), 
-        axis.title.x = element_text(size= 30),
-        axis.title.y = element_text(size = 30), 
-        legend.text = element_text(size = 20), 
-        legend.title = element_text(size=30),
-        axis.text.y = element_text(color = "grey20", size = 16)) + 
-  coord_flip() +
-  scale_fill_manual(values=c("#FBB829", "#FF0066", "#dddddd"), labels =c("3' IRE", "5' IRE", "No IRE")) +
-  labs(y = "Number of genes", x = "Gene set", fill = "Gene\nhas\nIRE?") 
-
-#export::graph2ppt(compPlot, "~/Desktop/ire_enrichment/comparison")
-
-compPlot
-
+sessionInfo()
 ```
 
