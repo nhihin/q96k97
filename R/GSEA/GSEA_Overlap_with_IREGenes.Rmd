@@ -174,15 +174,28 @@ allIREGenes %>% head
 
 ## 2. Compute gene overlap with IRE genesets
 
-We wish to see the overlap between the genesets in `gs` with the `ireGenes`. We will add this information into the `gs` tibble.
+We wish to see the overlap between the genesets in `gs` with the `ireGenes` (including 3' and 5' IRE genes), 
+as well as separately, with the 3' IRE genes and 5' IRE genes. We will add this information into the `gs` tibble.
+
 
 ```{r}
 gs %<>% rowwise() %>% mutate(
   n = length(ids),  # Number of genes in the geneset
-  n_with_ire = sum(ids %in% allIREGenes),  # Number of genes in the gene set which have predicted IREs
+  
+  n_with_ire = sum(ids %in% allIREGenes),  # Number of genes in the gene set which have 3' or 5' predicted IREs 
   n_without_ire = (n - n_with_ire),
   universe_with_ire = sum(rownames(v) %in% allIREGenes & !(rownames(v) %in% ids)), 
-  universe_without_ire = (length(rownames(v)) - universe_with_ire)
+  universe_without_ire = (length(rownames(v)) - universe_with_ire),
+  
+  n_with_ire3 = sum(ids %in% ireGenes$ire3_all),  # Number of genes in the gene set which have 3' predicted IREs
+  n_without_ire3= (n - n_with_ire),
+  universe_with_ire3 = sum(rownames(v) %in% ireGenes$ire3_all & !(rownames(v) %in% ids)), 
+  universe_without_ire3 = (length(rownames(v)) - universe_with_ire),
+  
+  n_with_ire5 = sum(ids %in% ireGenes$ire5_all),  # Number of genes in the gene set which have 5' predicted IREs
+  n_without_ire5= (n - n_with_ire),
+  universe_with_ire5 = sum(rownames(v) %in% ireGenes$ire5_all & !(rownames(v) %in% ids)), 
+  universe_without_ire5 = (length(rownames(v)) - universe_with_ire)
 ) %>% ungroup()
 
 gs
@@ -190,7 +203,8 @@ gs
 
 ## 3. Contingency tables
 
-Create contingency table for each gene set. We will store this in a list of matrices `gs_mat`:
+Create contingency table for each gene set. We will store this in a list of matrices `gs_mat`. 
+The 3' and 5' contingency matrices are stored in `gs_mat3` and `gs_mat5`. 
 ```{r, eval=FALSE}
 gs_mat <- gs %>% 
   dplyr::select(n_with_ire,
@@ -207,9 +221,41 @@ gs_mat <- gs %>%
     x %>% .[[1]]
   })
 
+gs_mat3 <- gs %>% 
+  dplyr::select(n_with_ire3,
+                n_without_ire3, 
+                universe_with_ire3, 
+                universe_without_ire3) %>% 
+  apply(X = ., MARGIN = 1, FUN = function(x){
+    x %>% 
+      matrix(2,2) %>% 
+      t %>% 
+      list()
+  }) %>% set_names(gs$geneset) %>% 
+  lapply(function(x){
+    x %>% .[[1]]
+  })
+
+gs_mat5 <- gs %>% 
+  dplyr::select(n_with_ire5,
+                n_without_ire5, 
+                universe_with_ire5, 
+                universe_without_ire5) %>% 
+  apply(X = ., MARGIN = 1, FUN = function(x){
+    x %>% 
+      matrix(2,2) %>% 
+      t %>% 
+      list()
+  }) %>% set_names(gs$geneset) %>% 
+  lapply(function(x){
+    x %>% .[[1]]
+  })
+
 ```
 ```{r}
 gs_mat[1:3]
+gs_mat3[1:3]
+gs_mat5[1:3]
 ```
 
 
@@ -223,10 +269,25 @@ fisher_res <- gs_mat %>% lapply(function(x){
   x %>% fisher.test()
 })
 
-fisher_res_p <- fisher_res %>% lapply(function(x){x$p.value})
+fisher_res3 <- gs_mat3 %>% lapply(function(x){
+  x %>% fisher.test()
+})
 
-gs %<>% mutate(fisher_p = fisher_res_p%>%unlist%>%unname) %>%
-  mutate(fdr = p.adjust(fisher_p, "fdr"))
+fisher_res5 <- gs_mat5 %>% lapply(function(x){
+  x %>% fisher.test()
+})
+
+fisher_res_p <- fisher_res %>% lapply(function(x){x$p.value})
+fisher_res_p3 <- fisher_res3 %>% lapply(function(x){x$p.value})
+fisher_res_p5 <- fisher_res5 %>% lapply(function(x){x$p.value})
+
+gs %<>% 
+  mutate(fisher_p = fisher_res_p%>%unlist%>%unname,
+         fisher_p_3 = fisher_res_p3%>%unlist%>%unname,
+         fisher_p_5 = fisher_res_p5%>%unlist%>%unname) %>%
+  mutate(fdr = p.adjust(fisher_p, "fdr"),
+         fdr_3 = p.adjust(fisher_p_3, "fdr"),
+         fdr_5 = p.adjust(fisher_p_5, "fdr"))
 
 # gs %>% saveRDS(here("R","GSEA","results","gs.rds"))
 ```
@@ -236,13 +297,62 @@ gs %<>% mutate(fisher_p = fisher_res_p%>%unlist%>%unname) %>%
 The following table shows the top 50 gene sets enriched in IRE genesets, ranked by Fisher's exact test *p*-values:
 
 ```{r}
- gs %>% arrange(fisher_p) %>% dplyr::select(-ids) %>% head(50)
+gs %>% arrange(fisher_p) %>% dplyr::select(geneset, contains("fdr"), n_with_ire, n) %>% head(50)
 ```
 
-## 6. TODO
+For genesets enriched in 3' IRE genes:
+```{r}
+gs %>% arrange(fisher_p_3) %>% dplyr::select(geneset, contains("fdr"), n_with_ire3, n) %>% head(50)
+```
 
-- Fisher's test separately on 3' IRE genes and 5' IRE genes. 
-- Stacked bar chart to indicate overlap of the top ~20 genesets. 
+For genesets enriched in 5' IRE genes:
+```{r}
+gs %>% arrange(fisher_p_5) %>% dplyr::select(geneset, contains("fdr"), n_with_ire5, n) %>% head(50)
+```
+
+
+## 6. Visualisation
+
+The following stacked bar chart shows the overlap between the top ~20 genesets and the predicted-IRE genesets.
+
+```{r fig.width=11,fig.height=8}
+overlapDf <- gs %>% arrange(fisher_p) %>% dplyr::filter(fdr < 0.1 | fdr_3 < 0.1 | fdr_5 < 0.1) %>%
+  dplyr::select(geneset, source, n_with_ire3, n_with_ire5, n_without_ire) %>%
+  bind_rows(data.frame(
+    geneset = c("- GRCz11 Zebrafish Genes - All Predicted IREs", "- GRCz11 Zebrafish Genes - High Quality Predicted IREs"),
+    source = c("sires", "sires"),
+    n_with_ire3 = c(length(ireGenes$ire3_all), 
+                    ireUtr3 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length),
+    n_with_ire5 = c(length(ireGenes$ire5_all),
+                    ireUtr5 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length),
+    n_without_ire = c(0,0)
+  )) %>% dplyr::mutate(geneset = paste0(geneset, " ", source)) %>%
+  dplyr::mutate(geneset = gsub(x=geneset, pattern = "_", replacement = " ")) %>%
+  dplyr::select(-source) %>% melt
+
+overlapPlot <- overlapDf %>% ggplot(aes(x = str_to_title(stringr::str_wrap(geneset, 23)), 
+                     y = value, 
+                     fill = variable)) + 
+  geom_col() +
+  theme(aspect.ratio = 0.7, 
+        axis.text.x =  element_text(size= 35), 
+        axis.title.x = element_text(size= 30),
+        axis.title.y = element_text(size = 30), 
+        legend.text = element_text(size = 20), 
+        legend.title = element_text(size=30),
+        axis.text.y = element_text(color = "grey20", size = 13)) + 
+  coord_flip() +  # Axis labels too long to be readable so this helps.
+  scale_fill_manual(values=c("#FBB829", "#FF0066", "#dddddd"), labels =c("3' IRE", "5' IRE", "No IRE")) +
+  labs(y = "Number of genes", x = "Gene set", fill = "Gene\nhas\nIRE?") 
+
+overlapPlot
+```
+
+
+## TODO
+
+- [x] Fisher's test separately on 3' IRE genes and 5' IRE genes. 
+- [x] Stacked bar chart to indicate overlap of the top ~20 genesets. 
 
 ## Session Info
 
