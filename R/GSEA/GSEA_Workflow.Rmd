@@ -11,6 +11,7 @@ library(readr)
 library(magrittr)
 library(tibble)
 library(reshape2)
+library(fgsea)
 library(ggplot2)
 library(org.Hs.eg.db)
 library(org.Dr.eg.db)
@@ -226,6 +227,217 @@ resultsDir <- here("R","GSEA","results")
 # gseaResults_ire %>% write.xlsx(file.path(resultsDir, "gseaResults_ire.xlsx"))
 # gseaResults_h %>% write.xlsx(file.path(resultsDir, "gseaResults_h.xlsx"))
 ```
+
+```{r}
+gseaResults_kegg <- readRDS(file.path(resultsDir, "gseaResults_kegg.rds"))
+gseaResults_ire <-  readRDS(file.path(resultsDir, "gseaResults_ire.rds"))
+gseaResults_h <- readRDS(file.path(resultsDir, "gseaResults_h.rds"))
+```
+
+## 5. Proportions of up/down genes in each geneset
+
+`fry` doesn't include this information but `mroast` does. 
+
+```{r}
+gseaResults_kegg2 <- combinedGSEA2(v, kegg_idx, design, contrasts)
+gseaResults_ire2 <- combinedGSEA2(v, ireGenes_idx, design, contrasts)
+gseaResults_h2 <- combinedGSEA2(v, h_idx, design, contrasts)
+
+# gseaResults_kegg2 %>% saveRDS(file.path(resultsDir, "gseaResults_kegg2.rds"))
+# gseaResults_ire2 %>% saveRDS(file.path(resultsDir, "gseaResults_ire2.rds"))
+# gseaResults_h2 %>% saveRDS(file.path(resultsDir, "gseaResults_h2.rds"))
+```
+
+Rankings for mroast and fry are similar, but fry ones are smaller, likely due to the infinite rotations. 
+```{r}
+gseaResults_kegg2$indivTest$normoxia_6mth_mutant_vs_wt$mroast %>%
+  inner_join(gseaResults_kegg$indivTest$normoxia_6mth_mutant_vs_wt$fry, 
+             by = c("Geneset","NGenes"), suffix = c(".mroast", ".fry")) %>% 
+  dplyr::select(Geneset,NGenes,contains("FDR.Mixed"), contains("Prop")) %>% 
+  dplyr::mutate(Prop.NotSignif = 1 - PropUp - PropDown) %>%
+  dplyr::arrange(FDR.Mixed.fry) %>% View
+```
+
+```{r}
+gseaResults_kegg2$indivTest$normoxia_6mth_mutant_vs_wt$mroast %>%
+  inner_join(gseaResults_kegg2$indivTest$normoxia_24mth_mutant_vs_wt$mroast, 
+             by = c("Geneset","NGenes"), suffix = c(".6mth", ".24mth")) %>% 
+  dplyr::select(Geneset,NGenes,contains("FDR.Mixed"), contains("Prop")) %>% 
+  dplyr::mutate(Prop.NotSignif.6mth = 1 - PropUp.6mth - PropDown.6mth,
+                Prop.NotSignif.24mth = 1 - PropUp.24mth - PropDown.24mth) %>%
+  dplyr::arrange(FDR.Mixed.6mth) %>% View
+```
+
+```{r}
+test<-gseaResults_kegg$combTest$normoxia_6mth_mutant_vs_wt %>% filter(fdr < 0.05)
+test %>% bind_rows(gseaResults_kegg$combTest$normoxia_24mth_mutant_vs_wt %>% filter(Geneset %in% test$Geneset))
+
+
+```
+
+## Butterfly plot / back-to-back stacked bar chart
+
+This kind of chart is effective for comparisons as the y-axis is shared between two panels (facets). In this chart, we are aiming to compare the proportions of up- and down-regulated genes within each geneset for two comparisons.
+
+Try with just the following two comparisons first:
+
+- `normoxia_6mth_mutant_vs_wt`
+- `normoxia_24mth_mutant_vs_wt`
+
+```{r, fig.width=11}
+# extract up/downregulated gene proportions from mroast
+x_props <- gseaResults_h$indivTest$normoxia_6mth_mutant_vs_wt$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="normoxia_6mth_mutant_vs_wt",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+# join to fry results
+x_fry_with_props <- gseaResults_h$indivTest$normoxia_6mth_mutant_vs_wt$fry %>%
+  #dplyr::filter(FDR.Mixed < 0.05) %>%
+  dplyr::select(Geneset) %>%
+  left_join(x_props)
+
+x_fry_with_props
+
+# extract proportions from mroast
+y_props <- gseaResults_h$indivTest$normoxia_24mth_mutant_vs_wt$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="normoxia_24mth_mutant_vs_wt",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+# join to fry results
+y_fry_with_props <- gseaResults_h$indivTest$normoxia_24mth_mutant_vs_wt$fry %>%
+  #dplyr::filter(FDR.Mixed < 0.05) %>%
+  dplyr::select(Geneset) %>%
+  left_join(y_props)
+
+y_fry_with_props
+
+# create the plot
+butterfly <- bind_rows(x_fry_with_props, y_fry_with_props) %>%
+  dplyr::mutate(Geneset = gsub(x = Geneset, pattern = "_", replacement = " "),
+                Geneset = gsub(x = Geneset, pattern = "HALLMARK", replacement = "")) %>%
+  reshape2::melt(id.vars=c("Geneset","NGenes","contrast")) %>%
+  dplyr::arrange(desc(NGenes)) %>% 
+  dplyr::rename(direction = variable, ngenes = value) %>%
+  dplyr::mutate(Geneset = factor(Geneset, levels = unique(Geneset)),
+                direction = factor(direction, levels = c("notSig", "down", "up")),
+                contrast = factor(contrast, levels = c("normoxia_6mth_mutant_vs_wt","normoxia_24mth_mutant_vs_wt"))) %>%
+  ggplot(aes(x = Geneset, y = ngenes, fill = direction)) +
+  geom_col() +
+  ggpol::facet_share(~contrast, scales = "free") +
+  scale_fill_manual(values=c("#DDDDDD","#83AF9B","#FE4365"))+
+  coord_flip() +
+  theme(axis.line.y = element_blank())
+
+
+butterfly
+
+# I can't figure out how to horizontally flip the left-panel with ggplot so for now
+# will export this and manually adjust in powerpoint:
+#export::graph2ppt(butterfly, here("R","GSEA","fig","butterfly"))
+
+```
+
+
+
+
+```{r butterflyPlotFunction}
+butterflyPlot <- function(x, contrastx, contrasty, signifLevel = 1){
+  # Plots a back-to-back stacked bar chart with the same y-axis using 
+  # two outputs of the combinedGSEA function. 
+  #
+  # Args:
+  #   x: the  combinedGSEA object
+  #   contrastx: the name of the contrast/coef in x
+  #   contrasty: the name of the contrast/coef in y
+  #   signifLevel: adjusted p-value cutoff
+  #
+  # Returns:
+  #   ggplot object
+  
+  # Extract proportions of up and down-regulated genes from the mroast slot. 
+  x_props <- x$indivTest %>%
+    .[[contrastx]] %>%
+    magrittr::use_series("mroast") %>%
+    dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+    dplyr::mutate(contrast=contrastx,
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down) %>%
+  dplyr::select(-PropUp, -PropDown)
+  
+  y_props <- x$indivTest %>%
+    .[[contrasty]] %>%
+    magrittr::use_series("mroast") %>%
+    dplyr::select(Geneset, NGenes, PropUp, PropDown) %>%
+    dplyr::mutate(contrast=contrasty,
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down) %>%
+  dplyr::select(-PropUp, -PropDown)
+  
+
+  
+  # Join mroast proportions onto the fry slot and filter for significant genesets.
+  x_fry_with_props <- x$indivTest %>%
+    .[[contrastx]] %>%
+    magrittr::use_series("fry") %>%
+    dplyr::select(Geneset) %>%
+    dplyr::left_join(x_props, by = c("Geneset")) 
+
+    y_fry_with_props <- x$indivTest %>%
+    .[[contrasty]] %>%
+    magrittr::use_series("fry") %>%
+    dplyr::select(Geneset) %>%
+    dplyr::left_join(y_props, by = c("Geneset")) 
+  
+
+  # Join the results and produce the plot
+  xy <- bind_rows(x_fry_with_props, y_fry_with_props) %>%
+  dplyr::mutate(Geneset = gsub(x = Geneset, pattern = "_", replacement = " "),
+                Geneset = gsub(x = Geneset, pattern = "HALLMARK|KEGG", replacement = ""),
+                Geneset = str_wrap(string=Geneset,width=23)) %>%
+  reshape2::melt(id.vars=c("Geneset","NGenes","contrast")) %>%
+  dplyr::arrange(desc(NGenes)) %>%
+  dplyr::rename(direction = variable, ngenes = value) %>%
+  dplyr::mutate(Geneset = factor(Geneset, levels = unique(Geneset)),
+                direction = factor(direction, levels = c("notSig", "down", "up")),
+                contrast = factor(contrast, levels = c(contrastx,contrasty))) %>%
+  ggplot(aes(x = Geneset , y = ngenes, fill = direction)) +
+  geom_col() +
+  ggpol::facet_share(~contrast, scales = "free") +
+  scale_fill_manual(values=c("#DDDDDD","#83AF9B","#FE4365"))+
+  coord_flip() +
+  theme(axis.line.y = element_blank())
+  
+  xy
+}
+```
+
+```{r}
+butterflyPlot(gseaResults_ire, contrastx = "normoxia_6mth_mutant_vs_wt", contrasty = "normoxia_24mth_mutant_vs_wt")
+```
+
+```{r fig.width=11, fig.height=20}
+butterflyPlot(gseaResults_kegg, contrastx = "normoxia_6mth_mutant_vs_wt", contrasty = "normoxia_24mth_mutant_vs_wt") 
+  
+```
+
+
+## TODO
+
+- [ ] Look into changing to Stouffer's method between the different enrichment methods used. Stouffer's method takes direction of change into account. We can use `qnorm` to convert *p*-values into directional z-values that can be used as input for Stouffer's method. 
+- [ ] Re-run `combinedGSEA` using `mroast` instead of `fry` to get the proportions of genes that are up- and down-regulated. 
+- [ ] Visualisation (maybe stacked bar charts / butterfly plot) for the up/down/unchanged proportions of genes for important contrasts/comparisons. Otherwise a heatmap might work. 
 
 ## 5. Session Info
 

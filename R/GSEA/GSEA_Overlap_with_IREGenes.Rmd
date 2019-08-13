@@ -297,10 +297,6 @@ gs %<>%
          fdr_3 = p.adjust(fisher_p_3, "fdr"),
          fdr_5 = p.adjust(fisher_p_5, "fdr"))
 
-# gs %>% saveRDS(here("R","GSEA","results","gs.rds"))
-# gs %>% write.xlsx(here("R","GSEA","results","gs.xlsx"))
-
-#gs <- readRDS(here("R","GSEA","results","gs.rds"))
 ```
 
 
@@ -309,7 +305,7 @@ gs %<>%
 For each gene set, we will calculate the number of genes **expected** to have IREs (based on the background proportion) and **observed** value. 
 This information will be added to the `gs` object.
 
-```{r}
+```{r eval=FALSE}
 gs %<>% rowwise() %>% mutate(
   exp_allIRE = (universe_with_ire / universe_without_ire)*n_without_ire,
   obs_allIRE = n_with_ire,
@@ -323,7 +319,9 @@ gs %<>% rowwise() %>% mutate(
   obs_ire5 = n_with_ire5,
   obs_greater_than_exp_ire5 = obs_ire5 > exp_ire5
 ) 
+```
 
+```{r}
 gs %>%
   dplyr::select(geneset, contains("exp"), starts_with("obs"), )
 ```
@@ -334,17 +332,20 @@ gs %>%
 The following table shows the top 50 gene sets enriched in IRE genesets, ranked by Fisher's exact test *p*-values:
 
 ```{r}
-gs %>% arrange(fisher_p) %>% dplyr::select(geneset, contains("fdr"), n_with_ire, n, starts_with("obs_greater")) %>% head(50)
+gs %>% ungroup() %>%
+  arrange(fisher_p) %>%
+  dplyr::select(geneset, contains("fdr"), n_with_ire, n, starts_with("obs_greater")) %>% 
+  head(50)
 ```
 
 Sorted by genesets most enriched in 3' IRE genes:
 ```{r}
-gs %>% arrange(fisher_p_3) %>% dplyr::select(geneset, contains("fdr"), n_with_ire3, n, starts_with("obs_greater")) %>% head(50)
+gs %>% ungroup %>% arrange(fisher_p_3) %>% dplyr::select(geneset, contains("fdr"), n_with_ire3, n, starts_with("obs_greater")) %>% head(50)
 ```
 
 Sorted by genesets most enriched in 5' IRE genes:
 ```{r}
-gs %>% arrange(fisher_p_5) %>% dplyr::select(geneset, contains("fdr"), n_with_ire5, n, starts_with("obs_greater")) %>% head(50)
+gs %>% ungroup %>% arrange(fisher_p_5) %>% dplyr::select(geneset, contains("fdr"), n_with_ire5, n, starts_with("obs_greater")) %>% head(50)
 ```
 
 
@@ -388,11 +389,27 @@ overlapPlot
 # export::graph2ppt(overlapPlot, here("R","GSEA","fig","overlapPlot"))
 ```
 
+## Export results
+
+```{r eval=FALSE}
+gs %>% saveRDS(here("R","GSEA","results","gs.rds"))
+gs %>% ungroup() %>% write.xlsx(here("R","GSEA","results","gs.xlsx"))
+
+# Export significant genesets / of interest
+gs %>%ungroup %>% 
+  arrange(fisher_p) %>%
+  dplyr::filter(fdr < 0.1 | fdr_3 < 0.1 | fdr_5 < 0.1) %>%
+  dplyr::filter(obs_greater_than_exp_allIRE == TRUE | obs_greater_than_exp_ire3 == TRUE | obs_greater_than_exp_ire5 == TRUE) %>%
+  dplyr::select(geneset, source, n, n_with_ire3, n_with_ire5, n_without_ire, contains("fisher_p"), contains("fdr")) %>%
+  write.xlsx(here("R","GSEA","results","gs_topRanked.xlsx"))
+```
+
 
 ## TODO
 
 - [x] Fisher's test separately on 3' IRE genes and 5' IRE genes. 
-- [x] Stacked bar chart to indicate overlap of the top ~20 genesets. 
+- [x] Stacked bar chart to indicate overlap of the top ~20 genesets with predicted IRE genes. 
+  - [ ] Repeat this but with human / mouse IREs and their genesets to do a cross-species comparison. 
 - [x] Add in calculation of Expected and Observed IRE gene values and filter significant results to have Observed > Expected. 
 
 ## Session Info
