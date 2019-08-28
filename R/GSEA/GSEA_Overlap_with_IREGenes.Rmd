@@ -16,6 +16,7 @@ library(stringr)
 library(purrr)
 library(export)
 library(reshape2)
+library(fgsea)
 library(tibble)
 
 # ggplot2 theme
@@ -91,11 +92,11 @@ gseaResults_ironSets <- combinedGSEA(v, ironSets_idx, design, contrasts)
 ```
 
 Results for **6 month, normoxia, mutant vs. wild type** below indicate that while some iron-related gene sets show enrichment in this comparison while others do not. 
-```{r}
+```{r eval=FALSE}
 gseaResults_ironSets$combTest$normoxia_6mth_mutant_vs_wt
 ```
 
-Overall, the figure below indivcates poor overlap between existing gene sets and our IRE-containing gene sets. However, to really see how our IRE genesets relate to existing gene sets, we need to do a more comprehensive test including more of the gene sets not restricted to ones related to iron metabolism. 
+Overall, the figure below indicates poor overlap between existing gene sets and our IRE-containing gene sets. However, to really see how our IRE genesets relate to existing gene sets, we need to do a more comprehensive test including more of the gene sets not restricted to ones related to iron metabolism. 
 
 ```{r fig.width=11, fig.cap="Comparison of gene overlap between our IRE gene sets and existing gene sets related to iron metabolism."}
 # Create a dataframe that includes overlap between iron-related gene sets and the ireGenes.
@@ -149,7 +150,7 @@ compPlot
 
 
 
-## 1. Relevant gene sets
+## 1. Defining Relevant Gene Sets
 
 We will be using the following gene set collections from **MSigDB**:
 
@@ -323,7 +324,7 @@ gs %<>% rowwise() %>% mutate(
 
 ```{r}
 gs %>%
-  dplyr::select(geneset, contains("exp"), starts_with("obs"), )
+  dplyr::select(geneset, contains("exp"), starts_with("obs"), ) %>% ungroup()
 ```
 
 
@@ -349,7 +350,7 @@ gs %>% ungroup %>% arrange(fisher_p_5) %>% dplyr::select(geneset, contains("fdr"
 ```
 
 
-## 7. Visualisation
+## 7. Visualisation (Stacked bar chart)
 
 The following stacked bar chart shows the overlap between the top ~20 genesets and the predicted-IRE genesets.
 
@@ -358,13 +359,13 @@ overlapDf <- gs %>% arrange(fisher_p) %>% dplyr::filter(fdr < 0.1 | fdr_3 < 0.1 
   dplyr::filter(obs_greater_than_exp_allIRE == TRUE | obs_greater_than_exp_ire3 == TRUE | obs_greater_than_exp_ire5 == TRUE) %>%
   dplyr::select(geneset, source, n_with_ire3, n_with_ire5, n_without_ire) %>%
   bind_rows(data.frame(
-    geneset = c("- GRCz11 Zebrafish Genes - All Predicted IREs", "- GRCz11 Zebrafish Genes - High Quality Predicted IREs"),
-    source = c("sires", "sires"),
-    n_with_ire3 = c(length(ireGenes$ire3_all), 
-                    ireUtr3 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length),
-    n_with_ire5 = c(length(ireGenes$ire5_all),
-                    ireUtr5 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length),
-    n_without_ire = c(0,0)
+    geneset = c("- GRCz11 Zebrafish Genes - All Predicted IREs"),
+    source = c("sires"),
+    n_with_ire3 = c(length(ireGenes$ire3_all)),
+#                    ireUtr3 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length),
+    n_with_ire5 = c(length(ireGenes$ire5_all)),
+#                    ireUtr5 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique %>% length),
+    n_without_ire = c(0)
   )) %>% dplyr::mutate(geneset = paste0(geneset, " ", source)) %>%
   dplyr::mutate(geneset = gsub(x=geneset, pattern = "_", replacement = " ")) %>%
   dplyr::select(-source) %>% melt
@@ -389,6 +390,133 @@ overlapPlot
 # export::graph2ppt(overlapPlot, here("R","GSEA","fig","overlapPlot"))
 ```
 
+## 8. Visualisation (Network)
+
+Although the stacked bar chart shows overlap between different gene sets with the predicted IRE geneset, along with information about the size of each geneset, crucially, it doesn't indicate which genes are in common between the different gene sets. My first idea was pairwise Venn diagrams between the IRE genes in each pair of genesets, but this isn't the most visual / intuitive way to present the information and it doesn't highlight the genes which are most often shared between different genesets. Steve had the idea to represent this as a network, with distinct groups of genes (grey) representing genesets, IRE genes in colour, and edges representing overlap between genesets. 
+
+I'm thinking the design will be something like this which can be made using *gephi*. To do this I will need to export a `nodes` and `edges` table from R. 
+![](https://i.imgur.com/qVNLSkp.png)
+
+### 8.1. Create the nodes table
+
+I will need to create a `data.frame` with the following columns:
+
+- **Id**: Gene ID
+- **IRE**: Factor which can either be `3' IRE`, `5' IRE`, or `no IRE`. 
+- **Geneset**: The gene set which it belongs to. 
+
+```{r}
+nodes<- gs %>% arrange(fisher_p) %>% dplyr::filter(fdr < 0.1 | fdr_3 < 0.1 | fdr_5 < 0.1) %>%
+  dplyr::filter(obs_greater_than_exp_allIRE == TRUE | obs_greater_than_exp_ire3 == TRUE | obs_greater_than_exp_ire5 == TRUE) %>%
+  ungroup
+
+# Append information about 3' and 5' IRE genesets 
+ nodes %<>% bind_rows(
+   tibble(
+     ids = c(list(ireGenes$ire3_all, ireGenes$ire5_all)),
+     geneset = c("Predicted 3' IRE genes", "Predicted 5' IRE genes"),
+     source = c("sires","sires"),
+     n = c(length(ireGenes$ire3_all), length(ireGenes$ire5_all))
+   )
+ ) 
+
+ nodes
+```
+
+First we filtered `gs` for only the genesets that are highly ranked in being enriched for predicted IRE genes. We applied the additional filtering step that the `observed` number of IRE genes is greater than the `expected` number. This results in `r nrow(nodes)` genesets. 
+
+The next step is to create all possible combinations of the genesets. We will use the `combn` function to do this. Then we will create a column `common_ids` to store the genes which are common to both gene sets being intersected. 
+
+```{r}
+gsComb <- combn(nodes$geneset, m = 2) %>% t %>% as.data.frame %>%
+  set_colnames(c("geneset", "geneset_2b")) %>%
+  left_join(nodes%>%dplyr::select(ids, geneset), by = "geneset") %>%
+  dplyr::rename(geneset_nm = geneset,
+                geneset = geneset_2b) %>%
+  left_join(nodes%>%dplyr::select(ids, geneset), by = "geneset") %>%
+  as_tibble %>%
+  mutate(common_ids = map2(ids.x, ids.y, ~intersect(.x,.y)))
+
+gsComb 
+```
+
+We can extract genes which appear the most often in genesets as follows:
+
+```{r}
+gsComb$common_ids%>%unlist %>% table %>% as.data.frame%>% arrange(desc(Freq)) %>% set_colnames(c("ensembl_gene_id", "f")) %>% left_join(v$genes %>% dplyr::select(-entrezid)) %>% as_tibble
+```
+
+The nodes table will contain
+
+- All genes in the genesets
+- The geneset names
+
+```{r}
+pathways <- nodes$geneset %>% as.data.frame %>% set_colnames("label")
+genes <- nodes$ids %>% unlist %>% unique %>% as.data.frame %>% set_colnames("label")
+nodesDf <- full_join(pathways, genes, by = "label") %>% rowid_to_column("id")
+
+# nodesDf %>%
+#   mutate(text = ifelse(id < 18, label, NA)) %>%
+#   mutate(size = ifelse(id < 16, 2, 1)) %>%
+#   mutate(colour = ifelse(id < 16, rainbow(26)[id], NA)) 
+
+head(nodesDf,20)
+
+nodesDf2 <- nodesDf %>%
+  mutate(
+    ire = case_when(
+      id < 16 ~ " ",
+      id == 16 ~ "3",
+      id == 17 ~ "5",
+      label %in% ireGenes$ire3_all ~ "3",
+      label %in% ireGenes$ire5_all ~ "5",
+      !(label %in% allIREGenes) ~ "no IRE"
+    )
+  )%>%
+  dplyr::select(-id) %>% dplyr::rename(Id = label) 
+
+head(nodesDf2, 30)
+#nodesDf2 %>% write_tsv(here("R","GSEA","data","nodes2.tsv"))
+```
+
+Edges will be between:
+
+- The genesets and all genes within the geneset 
+- Genes in multiple genesets
+
+```{r}
+edgeDf <- nodes$ids %>% set_names(nodes$geneset) %>% plyr::ldply(data.frame) %>% 
+  set_colnames(c("pathway", "gene")) %>%
+  left_join(nodesDf, by = c("pathway"="label")) %>%
+  dplyr::rename(from = id) %>%
+  left_join(nodesDf, by = c("gene"="label")) %>%
+  dplyr::rename(to=id) %>%
+  #dplyr::select(from, to)
+  dplyr::select(pathway, gene) %>%
+  set_colnames(c("Source","Target"))
+edgeDf %>% head(20)
+
+#edgeDf %>% write_tsv(here("R","GSEA","data","edges.tsv"))
+
+# nodesDf %>%
+#   mutate(text = ifelse(id < 16, label, NA)) %>%
+#   mutate(size = ifelse(id < 16, 2, 1)) %>%
+#   mutate(colour = ifelse(id < 16, rainbow(26)[id], NA)) %>%
+#   dplyr::select(-id) %>% dplyr::rename(Id = label) %>% write_tsv(here("R","GSEA","data","nodes.tsv"))
+# 
+# 
+# 
+# edgesHallmark <- plyr::ldply(sigHallmark, data.frame) %>% 
+#   set_colnames(c("pathway", "gene")) %>%
+#   left_join(nodesHallmark, by = c("pathway" = "label")) %>%
+#   dplyr::rename(from = id) %>%
+#   left_join(nodesHallmark, by = c("gene" = "label")) %>%
+#   dplyr::rename(to = id) %>%
+#   dplyr::select(from, to)
+```
+
+
 ## Export results
 
 ```{r eval=FALSE}
@@ -411,6 +539,7 @@ gs %>%ungroup %>%
 - [x] Stacked bar chart to indicate overlap of the top ~20 genesets with predicted IRE genes. 
   - [ ] Repeat this but with human / mouse IREs and their genesets to do a cross-species comparison. 
 - [x] Add in calculation of Expected and Observed IRE gene values and filter significant results to have Observed > Expected. 
+- [x] Export nodes and edges table for network visualisation. 
 
 ## Session Info
 
