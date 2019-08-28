@@ -50,6 +50,14 @@ combinedGSEA <- function(v, idx, design, contrasts){
           ) %>% 
           rownames_to_column("Geneset") %>%
           dplyr::mutate(pval = PValue.Mixed),
+        mroast = mroast(
+          v, 
+          idx, 
+          design = design, 
+          contrast = contrasts[, x]
+        ) %>% 
+          rownames_to_column("Geneset") %>%
+          dplyr::mutate(pval = PValue.Mixed),
         camera = camera(
           v, 
           idx,
@@ -80,6 +88,7 @@ combinedGSEA <- function(v, idx, design, contrasts){
     })
     return(x)
   }) %>%
+    magrittr::extract(. != "mroast") %>%
     lapply(function(x){
       x %>% do.call("rbind", .) %>%
         dplyr::group_by(Geneset) %>%
