@@ -226,6 +226,7 @@ resultsDir <- here("R","GSEA","results")
 # gseaResults_kegg %>% write.xlsx(file.path(resultsDir, "gseaResults_kegg.xlsx"))
 # gseaResults_ire %>% write.xlsx(file.path(resultsDir, "gseaResults_ire.xlsx"))
 # gseaResults_h %>% write.xlsx(file.path(resultsDir, "gseaResults_h.xlsx"))
+
 ```
 
 ```{r}
@@ -275,7 +276,7 @@ test %>% bind_rows(gseaResults_kegg$combTest$normoxia_24mth_mutant_vs_wt %>% fil
 
 ```
 
-## Butterfly plot / back-to-back stacked bar chart
+## 6. Butterfly plot / back-to-back stacked bar chart
 
 This kind of chart is effective for comparisons as the y-axis is shared between two panels (facets). In this chart, we are aiming to compare the proportions of up- and down-regulated genes within each geneset for two comparisons.
 
@@ -322,6 +323,7 @@ y_fry_with_props <- gseaResults_h$indivTest$normoxia_24mth_mutant_vs_wt$fry %>%
 y_fry_with_props
 
 # create the plot
+# adapted from https://stackoverflow.com/questions/4559229/drawing-pyramid-plot-using-r-and-ggplot2
 butterfly <- bind_rows(x_fry_with_props, y_fry_with_props) %>%
   dplyr::mutate(Geneset = gsub(x = Geneset, pattern = "_", replacement = " "),
                 Geneset = gsub(x = Geneset, pattern = "HALLMARK", replacement = "")) %>%
@@ -432,12 +434,66 @@ butterflyPlot(gseaResults_kegg, contrastx = "normoxia_6mth_mutant_vs_wt", contra
   
 ```
 
+## 7. K97fs Dataset
+
+The K97fs dataset was previously analysed with `fry` only in terms of gene set enrichment analysis. 
+I decided to re-run the K97fs dataset with the current method here to see whether 
+
+- IRE-containing genes are enriched (we expect that they will not be significantly enriched as the K97fs mutation is non AD-like).
+- KEGG / Hallmark pathways are similar or not compared to those in the Q96K97 dataset for the relevant comparisons. 
+- Results differ a lot between the `fry` only method and the 3-way approach using `fry`, `fgsea` and `camera`. 
+
+I basically just re-ran the same code as above except imported the following `voom` and `design` objects in instead. 
+These objects were previously saved from a `limma` DE analysis. 
+
+```{r}
+v <- readRDS(here("R","DE","data","k97_voomData.rds"))
+design <- readRDS(here("R","DE","data","k97_design.rds"))
+contrasts <- makeContrasts(
+  levels = colnames(design), 
+  K97_mutYoung_wtYoung = K97Gfs_mutant_young - K97Gfs_wt_young,
+  K97_mutOld_wtOld = K97Gfs_mutant_old - K97Gfs_wt_old,
+  K97_wtOld_wtYoung = K97Gfs_wt_old - K97Gfs_wt_young,
+  K97_mutOld_mutYoung = K97Gfs_mutant_old - K97Gfs_mutant_young
+)
+```
+
+Before running the `combinedGSEA()` function, we needed to make a change to the `voom` object involving making the rownames (ensembl gene ids) into a column so that it had the same structure as for the Q96K97 dataset and that way `combinedGSEA` runs successfully. What I really need to do sometime soon is modify the `combinedGSEA` function so that it's more robust and does checks for this sort of thing.
+
+```{r eval=FALSE}
+v$genes %<>% rownames_to_column("ensembl_gene_id")
+```
+
+After running `combinedGSEA` for the relevant indices, the results were saved as follows. 
+
+```{r eval=FALSE}
+gseaResults_kegg %>% saveRDS(here("R","GSEA","results","gseaResults_kegg_k97.rds"))
+gseaResults_ire %>% saveRDS(here("R","GSEA","results","gseaResults_ire_k97.rds"))
+gseaResults_h %>% saveRDS(here("R","GSEA","results","gseaResults_h_k97.rds"))
+```
+
+Quick inspection of the results indicates some differences straight up. 
+
+- For the young mutant vs. young wild-type comparison, only the **3' IRE High Quality** (`ire3_hq`) set is enriched after Bonferroni adjustment. 
+
+```{r}
+gseaResults_ire$combTest$K97_mutYoung_wtYoung
+```
+
+- Similarly, when we look at Hallmark gene sets, the top ranked ones do not really resemble the Q96K97 set other than the MTORC1 Signalling, Hypoxia, and TNFA Signalling via NFKB. The Mitotic Spindle, G2M Checkpoint and Apoptosis gene sets being enriched in this comparison indicate there could be issues with cell division. The reason for P53 pathway being enriched is unclear at first glance, but this one wasn't enriched in the analogous comparison in the Q96K97 dataset. This suggests that while there could be shared pathways in *psen1* mutation, there also seem to be quite substantial differences. 
+
+```{r}
+gseaResults_h$combTest$K97_mutYoung_wtYoung %>% filter(bonferroni < 0.05)
+```
+
 
 ## TODO
 
 - [ ] Look into changing to Stouffer's method between the different enrichment methods used. Stouffer's method takes direction of change into account. We can use `qnorm` to convert *p*-values into directional z-values that can be used as input for Stouffer's method. 
-- [ ] Re-run `combinedGSEA` using `mroast` instead of `fry` to get the proportions of genes that are up- and down-regulated. 
+- [x] Re-run `combinedGSEA` using `mroast` instead of `fry` to get the proportions of genes that are up- and down-regulated. 
 - [ ] Visualisation (maybe stacked bar charts / butterfly plot) for the up/down/unchanged proportions of genes for important contrasts/comparisons. Otherwise a heatmap might work. 
+- [x] Re-run `combinedGSEA` with K97fs dataset
+
 
 ## 5. Session Info
 
