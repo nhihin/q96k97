@@ -1,0 +1,297 @@
+---
+title: "Mouse Analysis"
+output: html_notebook
+---
+
+```{r loadPackages, include = FALSE}
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(AnnotationHub)
+library(plyranges)
+library(fgsea)
+library(magrittr)
+library(scales)
+library(pander)
+library(tidyverse)
+library(here)
+library(limma)
+```
+
+
+## 0. Aims
+
+- Create IRE gene sets for reference mouse genome. 
+- Figure out how to analyse the mouse microarray data. 
+
+## 1. IRE gene sets
+
+### 1.1.  Extract UTR sequences from human reference genome
+
+Here we prepare the `hg38` reference genomic ranges with Ensembl IDs rather than the default UCSC IDs:
+
+```{r}
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+ah <- AnnotationHub() %>% subset(species == "Mus musculus")
+#query(ah, c("musculus","release-94"))
+gr <- ah[["AH64689"]]
+
+ucscLevels <- seqlevels(mm10)
+ensLevels <- ucscLevels %>%
+	str_remove_all("^chr") %>%
+	str_remove_all("^[0-9Un]+_") %>%
+	str_remove_all("_alt") %>%
+	str_replace_all("v", ".") %>%
+	str_replace_all("^M$", "MT")
+ens2Ucsc <- structure(ucscLevels, names = ensLevels)
+seqlevels(gr) <- ens2Ucsc[seqlevels(gr)]
+seqinfo(gr, new2old = match(seqlevels(mm10), seqlevels(gr))) <- seqinfo(mm10)
+```
+
+
+### 1.2. Extract 3' and 5' UTR sequences
+#### 1.2.1. 3' UTRs
+Subset 3' UTR sequences:
+```{r eval=FALSE}
+utr3 <- subset(gr, type == "three_prime_utr")
+```
+
+Export 3' UTRs:
+```{r}
+utr3Seq <- Views(mm10, utr3) %>% DNAStringSet() 
+names(utr3Seq) <- paste(utr3$transcript_id, utr3$gene_name, granges(utr3), sep = "_")
+writeXStringSet(utr3Seq, here::here("R","Mouse","data","utr3_mouse.fa.gz"), compress = TRUE)
+```
+A total of `r comma(length(utr3))` sequences were exported.
+
+
+#### 1.2.2. 5' UTRs
+
+Subset 5' UTR sequences:
+```{r utr5}
+utr5 <- gr%>% subset(type == "five_prime_utr") 
+```
+
+Export 5' UTRs
+```{r exportutr5, eval=FALSE}
+utr5Seq <- Views(mm10, utr5) %>% DNAStringSet()  
+names(utr5Seq) <- paste(utr5$transcript_id, utr5$gene_name, granges(utr5), sep = "_") 
+writeXStringSet(utr5Seq, here("R","Mouse","data","utr5_mouse.fa.gz"), compress = TRUE) 
+```
+A total of `r comma(length(utr5))` sequences were exported.
+
+
+
+### 1.3. Import in SIREs GFF
+
+```{r}
+ireUtr3 <- here::here("R","Mouse","data","utr3_mouse.gff") %>% 
+	import.gff() %>%
+	as.data.frame(stringsAsFactors = FALSE) %>%
+	as_tibble()
+```
+
+```{r}
+ireUtr3 %<>%
+	mutate(seqnames = as.character(seqnames),
+				 seqnames = str_replace(seqnames, "_chrUn_", "_chrUn-")
+				 ) %>%
+	dplyr::select(-strand) %>%
+	separate(seqnames, c("transcript_id", "gene_name", "location"), sep = "_") %>%
+	mutate(location = str_replace(location, "chrUn-", "chrUn_")) %>%
+	separate(
+		location, 
+		into = c("seqnames", "trans_start", "trans_end", "strand"),
+		sep = "[:-]"
+	) %>%
+	mutate_at(c("trans_start", "trans_end"), funs(as.integer)) %>%
+	mutate(strand = case_when(
+		strand == "" ~ "-",
+		strand == "+" ~ "+"
+	),
+	start = ifelse(
+		strand == "+", 
+		trans_start + start - 1L,
+		trans_end - end + 1L
+	),
+	end = start + width - 1) %>%
+	dplyr::select(-contains("trans_")) %>%
+	makeGRangesFromDataFrame(
+		keep.extra.columns = TRUE, 
+		seqinfo = seqinfo(gr), 
+		seqnames.field = "seqnames", 
+		start.field = "start", 
+		end.field = "end", 
+		strand.field = "strand") 
+ireUtr3$gene_id <- mcols(gr)$gene_id[match(ireUtr3$transcript_id, gr$transcript_id)]
+```
+
+```{r}
+ireUtr3 %>% 
+	mcols() %>% 
+	as.data.frame() %>% 
+	select(ends_with("class"), quality) %>% 
+	lapply(table) %>% 
+	pander()
+```
+
+```{r}
+ireUtr5 <- here::here("R","Mouse","data","utr5_mouse.gff") %>% 
+	import.gff() %>%
+	as.data.frame(stringsAsFactors = FALSE) %>%
+	as_tibble()
+```
+
+```{r}
+ireUtr5 %<>%
+	mutate(seqnames = as.character(seqnames),
+				 seqnames = str_replace(seqnames, "_chrUn_", "_chrUn-")) %>%
+	dplyr::select(-strand) %>%
+	separate(seqnames, c("transcript_id", "gene_name", "location"), sep = "_") %>%
+	mutate(location = str_replace(location, "chrUn-", "chrUn_")) %>%
+	separate(
+		location, 
+		into = c("seqnames", "trans_start", "trans_end", "strand"),
+		sep = "[:-]"
+	) %>%
+	mutate_at(c("trans_start", "trans_end"), funs(as.integer)) %>%
+	mutate(strand = case_when(
+		strand == "" ~ "-",
+		strand == "+" ~ "+"
+	),
+	start = ifelse(
+		strand == "+", 
+		trans_start + start - 1L,
+		trans_end - end + 1L
+	),
+	end = start + width - 1) %>%
+	dplyr::select(-contains("trans_")) %>%
+	makeGRangesFromDataFrame(
+		keep.extra.columns = TRUE, 
+		seqinfo = seqinfo(gr), 
+		seqnames.field = "seqnames", 
+		start.field = "start", 
+		end.field = "end", 
+		strand.field = "strand")
+ireUtr5$gene_id <- mcols(gr)$gene_id[match(ireUtr5$transcript_id, gr$transcript_id)]
+```
+
+```{r}
+ireUtr5 %>% 
+	mcols() %>% 
+	as.data.frame() %>% 
+	select(ends_with("class"), quality) %>% 
+	lapply(table) %>% 
+	pander()
+```
+
+```{r}
+ireSets <- list(
+	ire3_all = ireUtr3 %>% 
+		mcols() %>% 
+		extract2("gene_id") %>% 
+		unique(),
+	ire5_all = ireUtr5 %>% 
+		mcols() %>% 
+		extract2("gene_id") %>% 
+		unique(),
+	ire3_hq = ireUtr3 %>% 
+		subset(quality == "High") %>% 
+		mcols() %>% 
+		extract2("gene_id") %>% 
+		unique(),
+	ire5_hq = ireUtr5 %>% 
+		subset(quality == "High") %>% 
+		mcols() %>% 
+		extract2("gene_id") %>% 
+		unique()
+)
+```
+
+```{r}
+str(ireSets)
+```
+
+```{r}
+saveRDS(ireSets, here::here("R/Mouse/data/mouse_ireSets.rds"))
+```
+
+
+
+
+
+## 2. Analysis of mouse dataset
+
+### 2.1. Import data
+
+```{r}
+
+f <- function(x) as.numeric(x$Flags > -75)
+mouseData <- list.files(here::here("R/Mouse/data/ps1"), full.names = TRUE) %>% 
+  read.maimages(files = ., source = "genepix", wt.fun = f)
+  
+  
+  
+  
+  
+  lapply(function(x){
+     f <- function(x) as.numeric(x$Flags > -75)
+  x %>% read.maimages(files = ., source = "genepix")
+})
+
+
+read.imagene(path = files)
+  
+
+mouseData
+
+files <- read.maimages(
+  here::here("R/Mouse/data/ps1/.gpr"), 
+  source = "genepix.mean", 
+  columns = c(R = "F633 Mean", 
+              G = "F543 Mean", 
+              Rb = "B633 Median", 
+              Gb = "F543 Median"), 
+  nrows = 10
+)
+
+test <- limma::read.maimages(here::here("R/Mouse/data/ps1/2_Res_V52_Cy5_27_PS1_12MvsCy3_24_WT_12M_23-03-10.gpr"), 
+                             source = "genepix.custom",
+                             columns = c(R = "F633 Mean", G = "F543 Mean", Rb = "B633 Median", Gb = "F543 Median") )
+```
+
+```{r}
+mouseData <- list.files(here::here("R/Mouse/data/ps1"), full.names = TRUE) %>% 
+  lapply(function(x){
+    x %>% read_tsv(skip=23)
+  })%>%
+  set_names(list.files(here::here("R/Mouse/data/ps1")))
+
+
+mouseData <- read_tsv(here::here("R/Mouse/data/ps1/Res_V52_Cy5_27_PS1_12MvsCy3_24_WT_12M_23-03-10.gpr"), 
+                      skip = 23)
+
+names(mouseData)[c(51, 58, 65)] %<>% gsub(x = ., pattern = "\xb2", replacement = "")
+
+names(mouseData) %<>% make.names
+
+mouseData %>% head
+
+mouseData %<>% 
+  mutate(number = 1:nrow(.), 
+         Block = paste0(number, "_",ID)) %>%
+  dplyr::select(-number)
+
+mouseData %>% write.table(here::here("R/Mouse/data/ps1/2_Res_V52_Cy5_27_PS1_12MvsCy3_24_WT_12M_23-03-10.gpr"), row.names = FALSE, quote = FALSE)
+
+mouseData <- read_table(here::here("R/Mouse/data/ps1/2_Res_V52_Cy5_27_PS1_12MvsCy3_24_WT_12M_23-03-10.gpr"), skip=23)
+mouseData
+
+
+
+```
+
+
+```{r}
+mouseData <- read_tsv(here::here("R/Mouse/data/ps1/Res_V52_Cy5_27_PS1_12MvsCy3_24_WT_12M_23-03-10.gpr"), skip=23)
+mouseData
+```
+

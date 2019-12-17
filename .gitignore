@@ -2,3 +2,21 @@
 .Rhistory
 .RData
 .Ruserdata
+*.pdf
+*.docx
+*.pptx
+Pres/201108_zebrafish.png
+Pres/500_F_264434949_L4EOWzEuU1j85ajh7X0BD2HHht3kKbfW.jpg
+Pres/butterfly.png
+Pres/Mutant_zebrafish.png
+*.png
+*.jpg
+*.indd
+Pres/QR Code/a8a201767ed7e06e.html
+Pres/QR Code/a8a201767ed7e06e (2).html
+Pres/QR Code/a8a201767ed7e06e (1).html
+*.zip
+Pres/Presentation1.pptx
+*.pptx
+R/misc/lachie_network.nb.html
+R/misc/lachie_network.Rmd

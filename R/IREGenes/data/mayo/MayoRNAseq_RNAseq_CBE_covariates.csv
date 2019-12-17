@@ -1,0 +1,279 @@
+"SampleID","Source","Tissue","RIN","Diagnosis","Sex","AgeAtDeath","ApoE","Flowcell","PMI"
+"11492_CER","MayoBrainBank_Dickson","Cerebellum",9.2,"PSP","M","73",33,"FCC7BR1ACXX",1
+"6810_CER","MayoBrainBank_Dickson","Cerebellum",8.9,"PSP","M","74",33,"FCC7AFDACXX",1
+"1046_CER","MayoBrainBank_Dickson","Cerebellum",9.2,"AD","F","72",33,"FCC7E15ACXX",2
+"1924_CER","MayoBrainBank_Dickson","Cerebellum",5.5,"Control","F","90_or_above",33,"FCC7983ACXX",2
+"1926_CER","MayoBrainBank_Dickson","Cerebellum",7.7,"Control","F","88",33,"FCC7E15ACXX",2
+"1958_CER","MayoBrainBank_Dickson","Cerebellum",7,"Control","F","90_or_above",33,"FCC7KRCACXX",2
+"6913_CER","MayoBrainBank_Dickson","Cerebellum",8.9,"PSP","F","79",33,"FCC7LB6ACXX",2
+"892_CER","MayoBrainBank_Dickson","Cerebellum",8.9,"AD","M","84",33,"FCC7KRCACXX",2
+"11255_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"PSP","F","69",33,"FCC7L2YACXX",3
+"11267_CER","MayoBrainBank_Dickson","Cerebellum",7.9,"PSP","F","70",33,"FCC7KRCACXX",3
+"11306_CER","MayoBrainBank_Dickson","Cerebellum",6.7,"PSP","F","73",33,"FCC7E15ACXX",3
+"11438_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"PSP","M","67",34,"FCC7DRJACXX",3
+"11445_CER","MayoBrainBank_Dickson","Cerebellum",7.5,"PSP","M","77",33,"FCC7KKVACXX",3
+"11458_CER","MayoBrainBank_Dickson","Cerebellum",8.1,"PSP","M","75",33,"FCC7KUNACXX",3
+"1282_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"AD","F","89",34,"FCC7DRJACXX",3
+"142_CER","MayoBrainBank_Dickson","Cerebellum",9.2,"AD","F","89",34,"FCC7L0WACXX",3
+"14549_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"Control","M","63",33,"FCC7DJAACXX",3
+"1935_CER","MayoBrainBank_Dickson","Cerebellum",6.3,"Control","F","88",33,"FCC7L0WACXX",3
+"6863_CER","MayoBrainBank_Dickson","Cerebellum",9,"PSP","F","80",23,"FCC7BR1ACXX",3
+"6894_CER","MayoBrainBank_Dickson","Cerebellum",9.2,"PSP","M","69",33,"FCC7LB6ACXX",3
+"6952_CER","MayoBrainBank_Dickson","Cerebellum",9.8,"PSP","M","83",33,"FCC7BR1ACXX",3
+"725_CER","MayoBrainBank_Dickson","Cerebellum",9,"AD","F","87",34,"FCC7L0WACXX",3
+"812_CER","MayoBrainBank_Dickson","Cerebellum",6.9,"AD","F","78",44,"FCC79ETACXX",3
+"896_CER","MayoBrainBank_Dickson","Cerebellum",9.1,"AD","F","80",34,"FCC7BR1ACXX",3
+"952_CER","MayoBrainBank_Dickson","Cerebellum",9,"AD","F","83",34,"FCC7LB6ACXX",3
+"1019_CER","MayoBrainBank_Dickson","Cerebellum",8.3,"AD","F","86",34,"FCC7BR1ACXX",4
+"1027_CER","MayoBrainBank_Dickson","Cerebellum",9.1,"AD","M","86",33,"FCC7BR1ACXX",4
+"1029_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"AD","F","69",33,"FCC7L0WACXX",4
+"1103_CER","MayoBrainBank_Dickson","Cerebellum",9,"AD","M","76",23,"FCC7KRCACXX",4
+"1104_CER","MayoBrainBank_Dickson","Cerebellum",8.6,"AD","F","60",33,"FCC7KUNACXX",4
+"1183_CER","MayoBrainBank_Dickson","Cerebellum",7.2,"AD","M","82",33,"FCC7E15ACXX",4
+"149_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"AD","F","90_or_above",33,"FCC7983ACXX",4
+"1963_CER","MayoBrainBank_Dickson","Cerebellum",9.1,"Control","M","90_or_above",33,"FCC7KRCACXX",4
+"7000_CER","MayoBrainBank_Dickson","Cerebellum",8,"PSP","M","83",23,"FCC79ALACXX",4
+"746_CER","MayoBrainBank_Dickson","Cerebellum",6.9,"AD","M","76",33,"FCC79ETACXX",4
+"787_CER","MayoBrainBank_Dickson","Cerebellum",8.7,"AD","F","85",34,"FCC79ALACXX",4
+"886_CER","MayoBrainBank_Dickson","Cerebellum",8.1,"AD","F","74",34,"FCC7AFDACXX",4
+"933_CER","MayoBrainBank_Dickson","Cerebellum",9.4,"AD","F","81",34,"FCC79ETACXX",4
+"946_CER","MayoBrainBank_Dickson","Cerebellum",9.7,"AD","F","77",33,"FCC7LB6ACXX",4
+"948_CER","MayoBrainBank_Dickson","Cerebellum",7.9,"AD","F","82",33,"FCC7E15ACXX",4
+"1034_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"AD","F","88",23,"FCC79ETACXX",5
+"1058_CER","MayoBrainBank_Dickson","Cerebellum",7.5,"AD","M","90_or_above",33,"FCC7L0WACXX",5
+"11285_CER","MayoBrainBank_Dickson","Cerebellum",7.1,"PSP","F","77",33,"FCC7L0WACXX",5
+"1129_CER","MayoBrainBank_Dickson","Cerebellum",7.5,"AD","F","83",34,"FCC7L2YACXX",5
+"11507_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"PSP","M","77",33,"FCC7L0WACXX",5
+"1239_CER","MayoBrainBank_Dickson","Cerebellum",8.2,"AD","M","87",33,"FCC7LB6ACXX",5
+"141_CER","MayoBrainBank_Dickson","Cerebellum",7.9,"AD","F","77",44,"FCC7DJAACXX",5
+"1919_CER","MayoBrainBank_Dickson","Cerebellum",9.2,"Control","F","87",33,"FCC7983ACXX",5
+"1943_CER","MayoBrainBank_Dickson","Cerebellum",5.9,"Control","M","88",34,"FCC7KKVACXX",5
+"1952_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"Control","F","90_or_above",33,"FCC7LB6ACXX",5
+"1955_CER","MayoBrainBank_Dickson","Cerebellum",8.3,"Control","F","87",33,"FCC7DRJACXX",5
+"732_CER","MayoBrainBank_Dickson","Cerebellum",10,"AD","F","84",34,"FCC7BMUACXX",5
+"766_CER","MayoBrainBank_Dickson","Cerebellum",7.9,"AD","F","85",34,"FCC7KKVACXX",5
+"777_CER","MayoBrainBank_Dickson","Cerebellum",8,"AD","M","87",33,"FCC7L2YACXX",5
+"786_CER","MayoBrainBank_Dickson","Cerebellum",7.9,"AD","M","88",34,"FCC7L0WACXX",5
+"791_CER","MayoBrainBank_Dickson","Cerebellum",7.7,"AD","F","89",33,"FCC7L0WACXX",5
+"813_CER","MayoBrainBank_Dickson","Cerebellum",8.2,"AD","M","90_or_above",34,"FCC7L0WACXX",5
+"931_CER","MayoBrainBank_Dickson","Cerebellum",8,"AD","F","90_or_above",33,"FCC7983ACXX",5
+"1015_CER","MayoBrainBank_Dickson","Cerebellum",9,"AD","M","77",34,"FCC7983ACXX",6
+"1105_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"AD","F","90_or_above",34,"FCC7BR1ACXX",6
+"11366_CER","MayoBrainBank_Dickson","Cerebellum",9.6,"PSP","M","65",33,"FCC7KRCACXX",6
+"11383_CER","MayoBrainBank_Dickson","Cerebellum",9.3,"PSP","M","64",33,"FCC79ALACXX",6
+"11493_CER","MayoBrainBank_Dickson","Cerebellum",8.7,"PSP","M","80",33,"FCC7DRJACXX",6
+"1166_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"AD","M","84",33,"FCC79ETACXX",6
+"1942_CER","MayoBrainBank_Dickson","Cerebellum",6.6,"Control","F","87",33,"FCC7LB6ACXX",6
+"6880_CER","MayoBrainBank_Dickson","Cerebellum",8.2,"PSP","M","79",33,"FCC7L0WACXX",6
+"844_CER",NA,NA,NA,NA,NA,NA,NA,NA,6
+"11452_CER","MayoBrainBank_Dickson","Cerebellum",9.1,"PSP","M","78",33,"FCC7BR1ACXX",7
+"1302_CER","MayoBrainBank_Dickson","Cerebellum",9.5,"AD","M","86",34,"FCC7LB6ACXX",7
+"1951_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"Control","F","86",34,"FCC7KKVACXX",7
+"976_CER","MayoBrainBank_Dickson","Cerebellum",8.3,"AD","F","90_or_above",34,"FCC7AFDACXX",7
+"11295_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"PSP","F","74",23,"FCC79ETACXX",8
+"11374_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"PSP","M","64",33,"FCC7KRCACXX",8
+"1159_CER","MayoBrainBank_Dickson","Cerebellum",9.1,"AD","M","65",33,"FCC7KKVACXX",8
+"1956_CER","MayoBrainBank_Dickson","Cerebellum",8.1,"Control","M","90_or_above",33,"FCC7983ACXX",8
+"132_CER",NA,NA,NA,NA,NA,NA,NA,NA,9
+"1931_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"Control","F","90_or_above",33,"FCC7KRCACXX",9
+"6925_CER","MayoBrainBank_Dickson","Cerebellum",7,"PSP","F","81",33,"FCC7E15ACXX",9
+"11258_CER","MayoBrainBank_Dickson","Cerebellum",9.7,"PSP","F","64",23,"FCC7E15ACXX",10
+"1929_CER","MayoBrainBank_Dickson","Cerebellum",8.6,"Control","M","90_or_above",33,"FCC7DJAACXX",10
+"1953_CER","MayoBrainBank_Dickson","Cerebellum",6,"Control","F","86",33,"FCC7KKVACXX",10
+"11298_CER","MayoBrainBank_Dickson","Cerebellum",9.7,"PSP","F","70",33,"FCC7DRJACXX",11
+"11309_CER","MayoBrainBank_Dickson","Cerebellum",8,"PSP","F","67",44,"FCC7BR1ACXX",11
+"11275_CER","MayoBrainBank_Dickson","Cerebellum",8.3,"PSP","F","81",33,"FCC7BR1ACXX",12
+"11305_CER","MayoBrainBank_Dickson","Cerebellum",9.7,"PSP","F","65",23,"FCC7KKVACXX",12
+"1936_CER","MayoBrainBank_Dickson","Cerebellum",6.6,"Control","F","89",33,"FCC7KRCACXX",12
+"894_CER","MayoBrainBank_Dickson","Cerebellum",6.5,"AD","M","87",33,"FCC7DRJACXX",12
+"11249_CER","MayoBrainBank_Dickson","Cerebellum",8.9,"PSP","F","85",33,"FCC79ETACXX",13
+"1950_CER",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"1923_CER","MayoBrainBank_Dickson","Cerebellum",7.4,"Control","M","89",33,"FCC7983ACXX",14
+"1940_CER","MayoBrainBank_Dickson","Cerebellum",7.5,"Control","M","90_or_above",33,"FCC7KKVACXX",14
+"1944_CER","MayoBrainBank_Dickson","Cerebellum",7.1,"Control","F","90_or_above",34,"FCC7KKVACXX",14
+"1085_CER","MayoBrainBank_Dickson","Cerebellum",8.9,"AD","F","82",33,"FCC79ETACXX",15
+"11498_CER","MayoBrainBank_Dickson","Cerebellum",7.4,"PSP","M","75",33,"FCC7983ACXX",15
+"7016_CER","MayoBrainBank_Dickson","Cerebellum",7,"PSP","M","61",34,"FCC7983ACXX",15
+"1169_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"AD","M","90_or_above",33,"FCC7L0WACXX",16
+"14552_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"Control","M","75",33,"FCC7KUNACXX",16
+"966_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"AD","F","79",44,"FCC7DJAACXX",16
+"11349_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"PSP","F","72",33,"FCC7KUNACXX",17
+"7015_CER","MayoBrainBank_Dickson","Cerebellum",7.7,"PSP","M","80",34,"FCC7KUNACXX",17
+"11303_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"PSP","F","71",34,"FCC7L0WACXX",18
+"1930_CER","MayoBrainBank_Dickson","Cerebellum",5.5,"Control","F","90_or_above",33,"FCC7AFDACXX",18
+"1957_CER",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"1960_CER","MayoBrainBank_Dickson","Cerebellum",7.6,"Control","F","90_or_above",33,"FCC7LB6ACXX",18
+"736_CER","MayoBrainBank_Dickson","Cerebellum",7.5,"AD","M","86",33,"FCC7AFDACXX",18
+"816_CER","MayoBrainBank_Dickson","Cerebellum",7.2,"AD","M","82",34,"FCC7L0WACXX",18
+"1938_CER","MayoBrainBank_Dickson","Cerebellum",6.7,"Control","F","90_or_above",23,"FCC7KRCACXX",19
+"11371_CER","MayoBrainBank_Dickson","Cerebellum",7.5,"PSP","M","68",34,"FCC7KRCACXX",20
+"11377_CER","MayoBrainBank_Dickson","Cerebellum",8.6,"PSP","M","75",33,"FCC7LB6ACXX",20
+"1258_CER","MayoBrainBank_Dickson","Cerebellum",7.3,"AD","M","90_or_above",34,"FCC7AFDACXX",20
+"1941_CER","MayoBrainBank_Dickson","Cerebellum",7.6,"Control","M","89",33,"FCC7BR1ACXX",20
+"11410_CER","MayoBrainBank_Dickson","Cerebellum",7.5,"PSP","M","76",23,"FCC7983ACXX",21
+"716_CER","MayoBrainBank_Dickson","Cerebellum",8.6,"AD","F","90_or_above",33,"FCC7983ACXX",21
+"127_CER","MayoBrainBank_Dickson","Cerebellum",5.7,"AD","M","79",34,"FCC7E15ACXX",22
+"1172_CER","MayoBrainBank_Dickson","Cerebellum",8.2,"AD","F","90_or_above",33,"FCC7KKVACXX",30
+"1964_CER","MayoBrainBank_Dickson","Cerebellum",9.2,"Control","M","90_or_above",23,"FCC7DRJACXX",33
+"785_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"AD","F","90_or_above",34,"FCC7KRCACXX",37
+"1933_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"Control","F","90_or_above",24,"FCC7KUNACXX",38
+"11291_CER","BannerSunHealth_TomBeach","Cerebellum",8.3,"Pathologic Aging","F","88",34,"FCC7L2YACXX",1.25
+"11312_CER","BannerSunHealth_TomBeach","Cerebellum",6.9,"Pathologic Aging","F","85",34,"FCC7E15ACXX",1.5
+"11422_CER","BannerSunHealth_TomBeach","Cerebellum",8.6,"Control","M","63",33,"FCC7983ACXX",1.5
+"11396_CER","BannerSunHealth_TomBeach","Cerebellum",8.1,"Control","M","78",33,"FCC7KUNACXX",1.66
+"11294_CER","BannerSunHealth_TomBeach","Cerebellum",8.6,"Control","F","82",33,"FCC7BR1ACXX",2
+"11311_CER","BannerSunHealth_TomBeach","Cerebellum",7.7,"Control","F","86",23,"FCC7AFDACXX",2
+"11334_CER","BannerSunHealth_TomBeach","Cerebellum",7.7,"Pathologic Aging","F","80",33,"FCC7DRJACXX",2
+"11395_CER","BannerSunHealth_TomBeach","Cerebellum",8.2,"Control","M","68",33,"FCC7LB6ACXX",2
+"11472_CER","BannerSunHealth_TomBeach","Cerebellum",7,"Control","M","86",34,"FCC7E15ACXX",2
+"11476_CER","BannerSunHealth_TomBeach","Cerebellum",8.4,"Control","M","82",33,"FCC7LB6ACXX",2.16
+"11317_CER","BannerSunHealth_TomBeach","Cerebellum",7.4,"Control","F","79",23,"FCC79ETACXX",2.22
+"11288_CER","BannerSunHealth_TomBeach","Cerebellum",8.1,"Control","F","82",33,"FCC7KUNACXX",2.25
+"11469_CER","BannerSunHealth_TomBeach","Cerebellum",7.8,"Control","M","81",33,"FCC79ETACXX",2.25
+"11470_CER","BannerSunHealth_TomBeach","Cerebellum",7.2,"Control","M","73",23,"FCC7L0WACXX",2.25
+"11483_CER","BannerSunHealth_TomBeach","Cerebellum",8,"Pathologic Aging","M","78",34,"FCC79ETACXX",2.25
+"11333_CER","BannerSunHealth_TomBeach","Cerebellum",8.8,"Pathologic Aging","F","88",33,"FCC7L0WACXX",2.33
+"11394_CER","BannerSunHealth_TomBeach","Cerebellum",8.8,"Control","M","61",33,"FCC7LB6ACXX",2.33
+"11464_CER","BannerSunHealth_TomBeach","Cerebellum",9,"Pathologic Aging","M","80",33,"FCC7KUNACXX",2.35
+"11261_CER","BannerSunHealth_TomBeach","Cerebellum",5.7,"Pathologic Aging","F","88",33,"FCC7L0WACXX",2.5
+"11326_CER","BannerSunHealth_TomBeach","Cerebellum",6.7,"Control","F","82",33,"FCC7AFDACXX",2.5
+"11331_CER","BannerSunHealth_TomBeach","Cerebellum",6.7,"Pathologic Aging","F","87",23,"FCC7L0WACXX",2.5
+"11341_CER","BannerSunHealth_TomBeach","Cerebellum",7.7,"Control","F","86",33,"FCC7KKVACXX",2.5
+"11342_CER","BannerSunHealth_TomBeach","Cerebellum",8.6,"Control","F","85",34,"FCC7L0WACXX",2.5
+"11389_CER","BannerSunHealth_TomBeach","Cerebellum",6.3,"Control","M","76",33,"FCC7KRCACXX",2.5
+"11424_CER","BannerSunHealth_TomBeach","Cerebellum",6.8,"Pathologic Aging","M","89",34,"FCC7BR1ACXX",2.5
+"11427_CER","BannerSunHealth_TomBeach","Cerebellum",8.6,"Pathologic Aging","M","84",33,"FCC7E15ACXX",2.5
+"11463_CER","BannerSunHealth_TomBeach","Cerebellum",9.1,"Control","M","80",33,"FCC7E15ACXX",2.5
+"11481_CER","BannerSunHealth_TomBeach","Cerebellum",9,"Pathologic Aging","M","84",33,"FCC7AFDACXX",2.5
+"11320_CER","BannerSunHealth_TomBeach","Cerebellum",8.1,"Control","F","68",33,"FCC79ETACXX",2.6
+"11264_CER","BannerSunHealth_TomBeach","Cerebellum",7.5,"Pathologic Aging","F","76",33,"FCC7AFDACXX",2.75
+"11339_CER","BannerSunHealth_TomBeach","Cerebellum",6.5,"Control","F","75",34,"FCC7983ACXX",2.75
+"11388_CER","BannerSunHealth_TomBeach","Cerebellum",8.5,"Control","M","81",33,"FCC7AFDACXX",2.75
+"11426_CER","BannerSunHealth_TomBeach","Cerebellum",7.9,"Pathologic Aging","M","86",33,"FCC7E15ACXX",2.75
+"11471_CER","BannerSunHealth_TomBeach","Cerebellum",7,"Pathologic Aging","M","86",33,"FCC7KUNACXX",2.8
+"11313_CER","BannerSunHealth_TomBeach","Cerebellum",7.8,"Pathologic Aging","F","88",34,"FCC7983ACXX",2.83
+"11330_CER","BannerSunHealth_TomBeach","Cerebellum",7.7,"Pathologic Aging","F","80",33,"FCC7AFDACXX",2.88
+"11292_CER","BannerSunHealth_TomBeach","Cerebellum",6.8,"Pathologic Aging","F","77",33,"FCC7BMUACXX",3
+"11319_CER","BannerSunHealth_TomBeach","Cerebellum",8.8,"Control","F","89",33,"FCC7DJAACXX",3
+"11329_CER","BannerSunHealth_TomBeach","Cerebellum",7.9,"Pathologic Aging","F","88",33,"FCC7DRJACXX",3
+"11337_CER","BannerSunHealth_TomBeach","Cerebellum",6.8,"Control","F","84",33,"FCC7DRJACXX",3
+"11393_CER","BannerSunHealth_TomBeach","Cerebellum",8.8,"Control","M","71",33,"FCC7983ACXX",3
+"11399_CER","BannerSunHealth_TomBeach","Cerebellum",8.6,"Control","M","79",33,"FCC7DRJACXX",3
+"11416_CER","BannerSunHealth_TomBeach","Cerebellum",7.6,"Control","M","84",33,"FCC7983ACXX",3
+"11429_CER","BannerSunHealth_TomBeach","Cerebellum",7.3,"Control","M","79",33,"FCC7BR1ACXX",3
+"11474_CER","BannerSunHealth_TomBeach","Cerebellum",8.5,"Control","M","83",33,"FCC7DRJACXX",3
+"11263_CER","BannerSunHealth_TomBeach","Cerebellum",8.7,"Control","F","58",23,"FCC7E15ACXX",3.13
+"11265_CER","BannerSunHealth_TomBeach","Cerebellum",6.5,"Control","F","59",33,"FCC7KRCACXX",3.15
+"11400_CER","BannerSunHealth_TomBeach","Cerebellum",8.5,"Control","M","83",34,"FCC7BR1ACXX",3.16
+"11431_CER","BannerSunHealth_TomBeach","Cerebellum",7.5,"Control","M","85",33,"FCC7BR1ACXX",3.16
+"11332_CER","BannerSunHealth_TomBeach","Cerebellum",6.4,"Pathologic Aging","F","84",33,"FCC7E15ACXX",3.25
+"11338_CER","BannerSunHealth_TomBeach","Cerebellum",8.6,"Pathologic Aging","F","77",34,"FCC7KUNACXX",3.25
+"11417_CER","BannerSunHealth_TomBeach","Cerebellum",8.4,"Control","M","80",33,"FCC7KKVACXX",3.25
+"11397_CER","BannerSunHealth_TomBeach","Cerebellum",5.8,"Control","M","75",33,"FCC7AFDACXX",3.33
+"11477_CER","BannerSunHealth_TomBeach","Cerebellum",5.9,"Pathologic Aging","M","89",33,"FCC7KUNACXX",3.33
+"11386_CER",NA,NA,NA,NA,NA,NA,NA,NA,3.5
+"11432_CER","BannerSunHealth_TomBeach","Cerebellum",7.2,"Control","M","74",33,"FCC79ALACXX",3.5
+"11480_CER","BannerSunHealth_TomBeach","Cerebellum",7.5,"Pathologic Aging","M","87",34,"FCC7DRJACXX",3.5
+"11343_CER","BannerSunHealth_TomBeach","Cerebellum",6.3,"Pathologic Aging","F","86",34,"FCC7983ACXX",3.55
+"11266_CER","BannerSunHealth_TomBeach","Cerebellum",8.6,"Control","F","76",34,"FCC79ETACXX",4
+"11325_CER","BannerSunHealth_TomBeach","Cerebellum",7.9,"Control","F","87",33,"FCC7DRJACXX",4
+"11423_CER","BannerSunHealth_TomBeach","Cerebellum",6,"Pathologic Aging","M","84",23,"FCC7AFDACXX",4.25
+"11468_CER","BannerSunHealth_TomBeach","Cerebellum",5.5,"Control","M","74",23,"FCC7E15ACXX",4.58
+"11391_CER","BannerSunHealth_TomBeach","Cerebellum",7.6,"Control","M","86",33,"FCC7KUNACXX",4.75
+"11290_CER","BannerSunHealth_TomBeach","Cerebellum",7.7,"Pathologic Aging","F","83",22,"FCC7LB6ACXX",4.83
+"11430_CER","BannerSunHealth_TomBeach","Cerebellum",7.2,"Control","M","89",33,"FCC79ETACXX",5.5
+"11485_CER","BannerSunHealth_TomBeach","Cerebellum",6.5,"Control","M","85",23,"FCC7E15ACXX",12.25
+"1000_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"AD","F","90_or_above",34,"FCC7KUNACXX",NA
+"1010_CER","MayoBrainBank_Dickson","Cerebellum",8.6,"AD","M","63",33,"FCC7DJAACXX",NA
+"1036_CER","MayoBrainBank_Dickson","Cerebellum",8,"AD","M","90_or_above",33,"FCC7KUNACXX",NA
+"1045_CER","MayoBrainBank_Dickson","Cerebellum",8.6,"AD","F","90_or_above",33,"FCC7KUNACXX",NA
+"1052_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"AD","M","90_or_above",33,"FCC7LB6ACXX",NA
+"1059_CER","MayoBrainBank_Dickson","Cerebellum",8.6,"AD","F","83",34,"FCC7BR1ACXX",NA
+"1078_CER","MayoBrainBank_Dickson","Cerebellum",8,"AD","F","85",33,"FCC7DRJACXX",NA
+"1089_CER","MayoBrainBank_Dickson","Cerebellum",8.3,"AD","F","77",44,"FCC7AFDACXX",NA
+"1098_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"AD","F","90_or_above",34,"FCC7983ACXX",NA
+"1114_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"AD","M","82",34,"FCC7AFDACXX",NA
+"1119_CER","MayoBrainBank_Dickson","Cerebellum",7.4,"AD","F","70",34,"FCC79ETACXX",NA
+"11241_CER","BannerSunHealth_TomBeach","Cerebellum",8,"Control","M","90_or_above",33,"FCC7983ACXX",NA
+"11253_CER","MayoBrainBank_Dickson","Cerebellum",9.9,"PSP","F","72",33,"FCC7KKVACXX",NA
+"11254_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"PSP","F","65",33,"FCC7E15ACXX",NA
+"11259_CER","MayoBrainBank_Dickson","Cerebellum",9.4,"PSP","F","76",34,"FCC7LB6ACXX",NA
+"11271_CER","MayoBrainBank_Dickson","Cerebellum",9.1,"PSP","F","72",33,"FCC7KRCACXX",NA
+"11276_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"PSP","F","80",33,"FCC7DJAACXX",NA
+"11279_CER","MayoBrainBank_Dickson","Cerebellum",9.5,"PSP","F","66",23,"FCC7E15ACXX",NA
+"11281_CER","MayoBrainBank_Dickson","Cerebellum",9.5,"PSP","F","67",33,"FCC79ETACXX",NA
+"11287_CER","MayoBrainBank_Dickson","Cerebellum",7.7,"PSP","F","64",24,"FCC7983ACXX",NA
+"11300_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"PSP","F","70",33,"FCC7L0WACXX",NA
+"11307_CER","MayoBrainBank_Dickson","Cerebellum",9.3,"PSP","F","80",33,"FCC7KRCACXX",NA
+"11314_CER","BannerSunHealth_TomBeach","Cerebellum",6.8,"Control","F","88",23,"FCC7983ACXX",NA
+"11323_CER","BannerSunHealth_TomBeach","Cerebellum",7.2,"Control","F","90_or_above",33,"FCC7KKVACXX",NA
+"11344_CER","BannerSunHealth_TomBeach","Cerebellum",8.5,"Pathologic Aging","F","90_or_above",33,"FCC79ETACXX",NA
+"11353_CER","MayoBrainBank_Dickson","Cerebellum",9.3,"PSP","F","68",33,"FCC7DJAACXX",NA
+"11355_CER","MayoBrainBank_Dickson","Cerebellum",10,"PSP","F","80",33,"FCC7DRJACXX",NA
+"11357_CER","MayoBrainBank_Dickson","Cerebellum",9.7,"PSP","F","79",23,"FCC7AFDACXX",NA
+"11358_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"PSP","F","78",33,"FCC7983ACXX",NA
+"1137_CER","MayoBrainBank_Dickson","Cerebellum",8.7,"AD","F","82",33,"FCC79ALACXX",NA
+"11370_CER","MayoBrainBank_Dickson","Cerebellum",9.1,"PSP","M","62",33,"FCC79ETACXX",NA
+"11372_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"PSP","M","68",34,"FCC7AFDACXX",NA
+"11381_CER","MayoBrainBank_Dickson","Cerebellum",7.6,"PSP","M","79",23,"FCC79ALACXX",NA
+"11385_CER","BannerSunHealth_TomBeach","Cerebellum",7.3,"Control","M","76",34,"FCC7KKVACXX",NA
+"11402_CER","MayoBrainBank_Dickson","Cerebellum",8.6,"PSP","M","64",23,"FCC7KRCACXX",NA
+"11403_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"PSP","M","76",33,"FCC7DRJACXX",NA
+"11404_CER","MayoBrainBank_Dickson","Cerebellum",10,"PSP","M","80",33,"FCC79ETACXX",NA
+"11408_CER","MayoBrainBank_Dickson","Cerebellum",7,"PSP","M","61",34,"FCC7KRCACXX",NA
+"11412_CER","MayoBrainBank_Dickson","Cerebellum",8.8,"PSP","M","76",33,"FCC7DRJACXX",NA
+"11425_CER","BannerSunHealth_TomBeach","Cerebellum",8.7,"Pathologic Aging","M","90_or_above",34,"FCC7KUNACXX",NA
+"11440_CER","MayoBrainBank_Dickson","Cerebellum",7.6,"PSP","M","70",23,"FCC79ETACXX",NA
+"11443_CER","MayoBrainBank_Dickson","Cerebellum",8.1,"PSP","M","85",23,"FCC7LB6ACXX",NA
+"11447_CER","MayoBrainBank_Dickson","Cerebellum",9,"PSP","M","70",33,"FCC7KRCACXX",NA
+"11448_CER","MayoBrainBank_Dickson","Cerebellum",7.9,"PSP","M","71",33,"FCC7AFDACXX",NA
+"11449_CER","MayoBrainBank_Dickson","Cerebellum",6.3,"PSP","M","74",34,"FCC7L0WACXX",NA
+"11456_CER","MayoBrainBank_Dickson","Cerebellum",8.9,"PSP","M","89",33,"FCC7KRCACXX",NA
+"11457_CER","MayoBrainBank_Dickson","Cerebellum",7.7,"PSP","M","73",33,"FCC7KKVACXX",NA
+"1146_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"AD","F","90_or_above",23,"FCC7KRCACXX",NA
+"11460_CER","MayoBrainBank_Dickson","Cerebellum",7.9,"PSP","M","67",34,"FCC79ALACXX",NA
+"11465_CER","BannerSunHealth_TomBeach","Cerebellum",6.5,"Control","M","82",33,"FCC7KKVACXX",NA
+"11475_CER","BannerSunHealth_TomBeach","Cerebellum",6.8,"Pathologic Aging","M","90_or_above",23,"FCC7E15ACXX",NA
+"11491_CER","MayoBrainBank_Dickson","Cerebellum",8.1,"PSP","M","74",33,"FCC7KKVACXX",NA
+"11494_CER","MayoBrainBank_Dickson","Cerebellum",7.3,"PSP","M","86",33,"FCC7KUNACXX",NA
+"11495_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"PSP","M","65",33,"FCC7AFDACXX",NA
+"11497_CER","MayoBrainBank_Dickson","Cerebellum",9,"PSP","M","82",33,"FCC7L0WACXX",NA
+"11499_CER","MayoBrainBank_Dickson","Cerebellum",6.8,"PSP","M","85",33,"FCC7AFDACXX",NA
+"11500_CER","MayoBrainBank_Dickson","Cerebellum",9.7,"PSP","M","70",33,"FCC7KUNACXX",NA
+"11502_CER","MayoBrainBank_Dickson","Cerebellum",8.2,"PSP","M","75",33,"FCC7BR1ACXX",NA
+"11503_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"PSP","M","82",23,"FCC7BR1ACXX",NA
+"11505_CER","MayoBrainBank_Dickson","Cerebellum",5.5,"PSP","M","76",33,"FCC7L0WACXX",NA
+"11506_CER","MayoBrainBank_Dickson","Cerebellum",8.3,"PSP","M","82",23,"FCC7BR1ACXX",NA
+"1200_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"AD","F","76",34,"FCC7DRJACXX",NA
+"1203_CER",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"1214_CER","MayoBrainBank_Dickson","Cerebellum",7.5,"AD","M","80",34,"FCC7KRCACXX",NA
+"1271_CER","MayoBrainBank_Dickson","Cerebellum",7.9,"AD","F","90_or_above",34,"FCC7LB6ACXX",NA
+"134_CER","MayoBrainBank_Dickson","Cerebellum",7.6,"AD","F","82",34,"FCC7E15ACXX",NA
+"135_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"AD","F","81",34,"FCC7LB6ACXX",NA
+"14553_CER","MayoBrainBank_Dickson","Cerebellum",7.6,"Control","F","83",33,"FCC7E15ACXX",NA
+"1932_CER","MayoBrainBank_Dickson","Cerebellum",5.5,"Control","F","85",33,"FCC7LB6ACXX",NA
+"1934_CER","MayoBrainBank_Dickson","Cerebellum",9.7,"Control","M","89",33,"FCC7E15ACXX",NA
+"1937_CER","MayoBrainBank_Dickson","Cerebellum",8.5,"Control","F","86",33,"FCC7BR1ACXX",NA
+"1945_CER","MayoBrainBank_Dickson","Cerebellum",8.9,"Control","M","90_or_above",23,"FCC7LB6ACXX",NA
+"6819_CER","MayoBrainBank_Dickson","Cerebellum",9.4,"PSP","F","78",33,"FCC79ETACXX",NA
+"6821_CER","MayoBrainBank_Dickson","Cerebellum",9,"PSP","M","73",34,"FCC7KKVACXX",NA
+"6870_CER","MayoBrainBank_Dickson","Cerebellum",9.7,"PSP","M","73",33,"FCC7AFDACXX",NA
+"6872_CER","MayoBrainBank_Dickson","Cerebellum",8.4,"PSP","M","74",33,"FCC7983ACXX",NA
+"6914_CER","MayoBrainBank_Dickson","Cerebellum",7.8,"PSP","F","78",33,"FCC7AFDACXX",NA
+"6915_CER","MayoBrainBank_Dickson","Cerebellum",7.7,"PSP","M","80",33,"FCC7BR1ACXX",NA
+"6929_CER","MayoBrainBank_Dickson","Cerebellum",9,"PSP","F","76",33,"FCC7AFDACXX",NA
+"719_CER","MayoBrainBank_Dickson","Cerebellum",9.2,"AD","F","88",23,"FCC7DRJACXX",NA
+"731_CER","MayoBrainBank_Dickson","Cerebellum",9,"AD","M","90_or_above",33,"FCC79ETACXX",NA
+"742_CER",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"744_CER","MayoBrainBank_Dickson","Cerebellum",8.3,"AD","M","73",33,"FCC79ETACXX",NA
+"751_CER","MayoBrainBank_Dickson","Cerebellum",9.3,"AD","M","64",34,"FCC7KUNACXX",NA
+"775_CER","MayoBrainBank_Dickson","Cerebellum",8.7,"AD","M","75",34,"FCC7DRJACXX",NA
+"783_CER","MayoBrainBank_Dickson","Cerebellum",7.4,"AD","F","87",34,"FCC7KRCACXX",NA
+"797_CER","MayoBrainBank_Dickson","Cerebellum",9.4,"AD","M","85",33,"FCC7BMUACXX",NA
+"801_CER","MayoBrainBank_Dickson","Cerebellum",8,"AD","M","84",34,"FCC7KKVACXX",NA
+"834_CER","MayoBrainBank_Dickson","Cerebellum",7.6,"AD","M","78",44,"FCC7DRJACXX",NA
+"849_CER","MayoBrainBank_Dickson","Cerebellum",8.7,"AD","M","64",33,"FCC7DJAACXX",NA
+"851_CER","MayoBrainBank_Dickson","Cerebellum",9.1,"AD","F","87",33,"FCC7KUNACXX",NA
+"871_CER","MayoBrainBank_Dickson","Cerebellum",8.3,"AD","F","90_or_above",33,"FCC79ALACXX",NA
+"937_CER","MayoBrainBank_Dickson","Cerebellum",8.2,"AD","F","67",34,"FCC7DJAACXX",NA
+"991_CER","MayoBrainBank_Dickson","Cerebellum",9.3,"AD","M","87",34,"FCC7KUNACXX",NA

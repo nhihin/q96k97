@@ -1,6 +1,8 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "Are IRE gene sets over-represented in MSigDB gene sets?"
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r Setup, include=FALSE, message=FALSE, warning=FALSE}
@@ -23,14 +25,14 @@ library(tibble)
 theme_set(theme_bw())
 
 # Load objects required for this analysis. 
-# Gene set collections mapped to zebrafish Ensembl IDs:
+# Gene set collections with human entrezgenes converted to zebrafish Ensembl IDs and saved as lists of gene sets. 
 h_mapped <- readRDS(here("R","GSEA","data","ens_h_mapped.rds"))  # Hallmark Gene set collection 
 c2_mapped <- readRDS(here("R","GSEA","data","ens_c2_mapped.rds"))  # Curated Gene set collection
 c3_mapped <- readRDS(here("R","GSEA","data","ens_c3_mapped.rds"))  # Motif Gene set collection
 c5_mapped <- readRDS(here("R","GSEA","data","ens_c5_mapped.rds"))  # Gene Ontology Gene set collection 
-ireGenes <- readRDS(here("R","GSEA","data","ireGenes.rds")) # Genes we predicted to contain IREs
+ireGenes <- readRDS(here("R","GSEA","data","ireGenes.rds")) # List of IRE gene sets, contains 4 gene sets: 3' All IRE genes, 5' All IRE genes, 3' High-Quality IRE genes, 5' High-Quality IRE genes 
 
-# IRE genes
+# IRE genes GRanges objects exported from SIREs web server
 ireUtr3 <- readRDS(here("R","IREGenes","data","ireUtr3.rds"))
 ireUtr5 <- readRDS(here("R","IREGenes","data","ireUtr5.rds"))
 
@@ -51,7 +53,7 @@ The approach is as follows:
 
 - Load in relevant gene set collections from MSigDB.
 - Get them into a format suitable for performing Fisher's exact test to test whether they are enriched for IRE-containing genes. 
-- Results displayed on a bar chart. 
+- Results displayed on a bar chart and also as a network. 
 
 The motivation for doing this analysis comes from an interesting observation using the naive approach of searching MSigDB for all gene sets with **iron** or **heme** in their name and seeing the overlap in genes between these gene sets and the IRE-containing genesets we identified. 
 
@@ -82,16 +84,14 @@ head(ironSets_idx,2)
 
 We used a gene set enrichment analysis approach to test for whether these iron-related gene sets were enriched in our DE results.
 
-
 ```{r, eval=FALSE}
 source(here("R","GSEA","combinedGSEA.R"))
 
 gseaResults_ironSets <- combinedGSEA(v, ironSets_idx, design, contrasts)
 # gseaResults_ironSets %>% saveRDS(here("R","GSEA","results","gseaResults_ironSets.rds"))
-# gseaResults_ironSets %>% write.xlsx(here("R","GSEA","results","gseaResults_ironSets.xlsx"))
 ```
 
-Results for **6 month, normoxia, mutant vs. wild type** below indicate that while some iron-related gene sets show enrichment in this comparison while others do not. 
+Results for **6 month, normoxia, mutant vs. wild type** below indicate that while some iron-related gene sets show enrichment in this comparison, others do not. 
 ```{r eval=FALSE}
 gseaResults_ironSets$combTest$normoxia_6mth_mutant_vs_wt
 ```
@@ -152,7 +152,7 @@ compPlot
 
 ## 1. Defining Relevant Gene Sets
 
-We will be using the following gene set collections from **MSigDB**:
+We will be testing whether our IRE gene sets are enriched in any of the gene sets in the following gene set collections from **MSigDB**:
 
 - **Hallmark gene sets** (**H**) are coherently expressed signatures derived by aggregating many MSigDB gene sets to represent well-defined biological states or processes.
 - **Curated gene sets** (**C2**) are from online pathway databases, publications in PubMed, and knowledge of domain experts.
@@ -181,11 +181,12 @@ allIREGenes <- c(ireGenes$ire3_all, ireGenes$ire5_all)
 allIREGenes %>% head
 ```
 
-## 2. Compute gene overlap with IRE genesets
+## 2. Compute gene set overlap with IRE genesets
 
-We wish to see the overlap between the genesets in `gs` with the `ireGenes` (including 3' and 5' IRE genes), 
-as well as separately, with the 3' IRE genes and 5' IRE genes. We will add this information into the `gs` tibble.
-
+We wish to see the overlap between the genesets in `gs` with the 
+`ireGenes` (including 3' and 5' IRE genes), 
+as well as separately, with the 3' IRE genes and 5' IRE genes. 
+We will add this information into the `gs` tibble.
 
 ```{r}
 gs %<>% rowwise() %>% mutate(
@@ -212,8 +213,10 @@ gs
 
 ## 3. Contingency tables
 
-Create contingency table for each gene set. We will store this in a list of matrices `gs_mat`. 
+Create contingency table for each gene set. We will store this in a 
+list of matrices `gs_mat`. 
 The 3' and 5' contingency matrices are stored in `gs_mat3` and `gs_mat5`. 
+
 ```{r, eval=FALSE}
 gs_mat <- gs %>% 
   dplyr::select(n_with_ire,
@@ -303,7 +306,8 @@ gs %<>%
 
 ## 5. Calculate Expected and Observed
 
-For each gene set, we will calculate the number of genes **expected** to have IREs (based on the background proportion) and **observed** value. 
+For each gene set, we will calculate the number of genes **expected** to have 
+IREs (based on the background proportion) and **observed** value. 
 This information will be added to the `gs` object.
 
 ```{r eval=FALSE}
@@ -330,7 +334,8 @@ gs %>%
 
 ## 6. Results
 
-The following table shows the top 50 gene sets enriched in IRE genesets, ranked by Fisher's exact test *p*-values:
+The following table shows the top 50 gene sets enriched in IRE genesets, 
+ranked by Fisher's exact test *p*-values:
 
 ```{r}
 gs %>% ungroup() %>%
@@ -352,7 +357,8 @@ gs %>% ungroup %>% arrange(fisher_p_5) %>% dplyr::select(geneset, contains("fdr"
 
 ## 7. Visualisation (Stacked bar chart)
 
-The following stacked bar chart shows the overlap between the top ~20 genesets and the predicted-IRE genesets.
+The following stacked bar chart shows the overlap between the top ~20 
+genesets and the predicted-IRE genesets.
 
 ```{r fig.width=11,fig.height=8}
 overlapDf <- gs %>% arrange(fisher_p) %>% dplyr::filter(fdr < 0.1 | fdr_3 < 0.1 | fdr_5 < 0.1) %>%
@@ -394,8 +400,6 @@ overlapPlot
 
 Although the stacked bar chart shows overlap between different gene sets with the predicted IRE geneset, along with information about the size of each geneset, crucially, it doesn't indicate which genes are in common between the different gene sets. My first idea was pairwise Venn diagrams between the IRE genes in each pair of genesets, but this isn't the most visual / intuitive way to present the information and it doesn't highlight the genes which are most often shared between different genesets. Steve had the idea to represent this as a network, with distinct groups of genes (grey) representing genesets, IRE genes in colour, and edges representing overlap between genesets. 
 
-I'm thinking the design will be something like this which can be made using *gephi*. To do this I will need to export a `nodes` and `edges` table from R. 
-![](https://i.imgur.com/qVNLSkp.png)
 
 ### 8.1. Create the nodes table
 
@@ -411,7 +415,7 @@ nodes<- gs %>% arrange(fisher_p) %>% dplyr::filter(fdr < 0.1 | fdr_3 < 0.1 | fdr
   ungroup
 
 # Append information about 3' and 5' IRE genesets 
- nodes %<>% bind_rows(
+nodes %<>% bind_rows(
    tibble(
      ids = c(list(ireGenes$ire3_all, ireGenes$ire5_all)),
      geneset = c("Predicted 3' IRE genes", "Predicted 5' IRE genes"),
@@ -420,7 +424,16 @@ nodes<- gs %>% arrange(fisher_p) %>% dplyr::filter(fdr < 0.1 | fdr_3 < 0.1 | fdr
    )
  ) 
 
- nodes
+# Append the Hallmark Heme Metabolism geneset
+# Although this gene set wasnt significantly enriched in 
+# IRE-containing genes, it is probably the most comprehensive
+# gene set specifically on heme metabolism, and combines info 
+# from various studies. 
+nodes %<>% bind_rows(
+  h_tib %>% filter(geneset == "HALLMARK_HEME_METABOLISM") %>% mutate(n = length(ids[[1]]))
+ ) 
+
+nodes
 ```
 
 First we filtered `gs` for only the genesets that are highly ranked in being enriched for predicted IRE genes. We applied the additional filtering step that the `observed` number of IRE genes is greater than the `expected` number. This results in `r nrow(nodes)` genesets. 
@@ -467,6 +480,7 @@ nodesDf2 <- nodesDf %>%
   mutate(
     ire = case_when(
       id < 16 ~ " ",
+      id == 18 ~ " ",
       id == 16 ~ "3",
       id == 17 ~ "5",
       label %in% ireGenes$ire3_all ~ "3",
@@ -476,8 +490,8 @@ nodesDf2 <- nodesDf %>%
   )%>%
   dplyr::select(-id) %>% dplyr::rename(Id = label) 
 
-head(nodesDf2, 30)
-#nodesDf2 %>% write_tsv(here("R","GSEA","data","nodes2.tsv"))
+head(nodesDf2, 30) 
+# nodesDf2 %>% write_tsv(here("R","GSEA","data","nodes2.tsv"))
 ```
 
 Edges will be between:
@@ -497,23 +511,7 @@ edgeDf <- nodes$ids %>% set_names(nodes$geneset) %>% plyr::ldply(data.frame) %>%
   set_colnames(c("Source","Target"))
 edgeDf %>% head(20)
 
-#edgeDf %>% write_tsv(here("R","GSEA","data","edges.tsv"))
 
-# nodesDf %>%
-#   mutate(text = ifelse(id < 16, label, NA)) %>%
-#   mutate(size = ifelse(id < 16, 2, 1)) %>%
-#   mutate(colour = ifelse(id < 16, rainbow(26)[id], NA)) %>%
-#   dplyr::select(-id) %>% dplyr::rename(Id = label) %>% write_tsv(here("R","GSEA","data","nodes.tsv"))
-# 
-# 
-# 
-# edgesHallmark <- plyr::ldply(sigHallmark, data.frame) %>% 
-#   set_colnames(c("pathway", "gene")) %>%
-#   left_join(nodesHallmark, by = c("pathway" = "label")) %>%
-#   dplyr::rename(from = id) %>%
-#   left_join(nodesHallmark, by = c("gene" = "label")) %>%
-#   dplyr::rename(to = id) %>%
-#   dplyr::select(from, to)
 ```
 
 
@@ -532,6 +530,15 @@ gs %>%ungroup %>%
   write.xlsx(here("R","GSEA","results","gs_topRanked.xlsx"))
 ```
 
+## 9. Human Data
+
+- Managed to get the sets of human genes containing IREs:
+
+```{r}
+zebrafishIreGenes <- readRDS(here::here("R/GSEA/data/ireGenes.rds"))
+humanIreGenes <- readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
+```
+
 
 ## TODO
 
@@ -540,6 +547,7 @@ gs %>%ungroup %>%
   - [ ] Repeat this but with human / mouse IREs and their genesets to do a cross-species comparison. 
 - [x] Add in calculation of Expected and Observed IRE gene values and filter significant results to have Observed > Expected. 
 - [x] Export nodes and edges table for network visualisation. 
+- [x] Export edges and nodes table again except with Hallmark Heme metabolism added in
 
 ## Session Info
 

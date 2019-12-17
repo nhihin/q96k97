@@ -20,6 +20,17 @@ library(limma)
 library(here)
 library(stringr)
 library(openxlsx)
+library(pheatmap)
+
+# Function to save a pheatmap 
+save_pheatmap_pdf <- function(x, filename, width=8, height=11) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
 ```
 
 
@@ -30,9 +41,9 @@ The purpose of this analysis is to determine enriched gene sets in the Q96K97 da
 In this analysis, we will need the voom object, design matrix, and contrasts matrix previously made in the differential gene expression analysis using *limma*.
 
 ```{r}
-v <- readRDS(here("R","DE","data","voomData_g.rds"))  # Voom object
-design <- readRDS(here("R","DE","data","design_g.rds"))  # Design matrix
-contrasts <- readRDS(here("R","DE","data","contrasts_g.rds"))  # Contrasts matrix
+v <- readRDS(here::here("R","DE","data","voomData_g.rds"))  # Voom object
+design <- readRDS(here::here("R","DE","data","design_g.rds"))  # Design matrix
+contrasts <- readRDS(here::here("R","DE","data","contrasts_g.rds"))  # Contrasts matrix
 ```
 
 
@@ -192,6 +203,8 @@ ireGenes <- list(
   ire5_hq <- ireUtr5 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique
 ) %>% set_names(c("ire3_all", "ire5_all", "ire3_hq", "ire5_hq"))
 
+zebrafishIreGenes_withoutHres_idx <- buildGenesetIndex(zebrafishIreGenes_withoutHres)
+
 # Create index for limma functions. 
 ireGenes_idx <- buildGenesetIndex(ireGenes)
 ```
@@ -214,6 +227,7 @@ We will run the `combinedGSEA()` function for each gene set collection, on the v
 gseaResults_kegg <- combinedGSEA(v, kegg_idx, design, contrasts)
 gseaResults_ire <- combinedGSEA(v, ireGenes_idx, design, contrasts)
 gseaResults_h <- combinedGSEA(v, h_idx, design, contrasts)
+gseaResults_ire_without_hre <- combinedGSEA(v, zebrafishIreGenes_withoutHres_idx, design, contrasts)
 
 
 # Export results
@@ -229,11 +243,325 @@ resultsDir <- here("R","GSEA","results")
 
 ```
 
-```{r}
+```{r Saved-results-objects}
 gseaResults_kegg <- readRDS(file.path(resultsDir, "gseaResults_kegg.rds"))
 gseaResults_ire <-  readRDS(file.path(resultsDir, "gseaResults_ire.rds"))
 gseaResults_h <- readRDS(file.path(resultsDir, "gseaResults_h.rds"))
 ```
+
+### 4.0. Results 
+
+
+#### 4.0.1. IRE Geneset Significance
+
+```{r}
+summary_ireSig <- gseaResults_ire$combTest %>% lapply(function(x){
+  x %>% filter(Geneset %in% c("ire3_all", "ire5_all"), bonferroni < 0.05) %>%
+    dplyr::select(id, Geneset, bonferroni)
+}) %>% bind_rows()
+
+summary_ireSig$bonferroni %>% -log(.) %>% summary
+
+-log(summary_ireSig$bonferroni)
+
+mutant_vs_wt <- summary_ireSig %>% dplyr::filter(grepl("mutant_vs_wt",id)) %>% mutate(log = -log(bonferroni))
+mutant_vs_wt
+
+aging <- summary_ireSig %>% dplyr::filter(grepl("Aging",id)) %>% mutate(log = -log(bonferroni))
+aging
+
+hypoxia_vs_normoxia <- summary_ireSig %>% dplyr::filter(grepl("hypoxia_vs_normoxia",id)) %>% mutate(log = -log(bonferroni))
+hypoxia_vs_normoxia
+```
+
+Make colour scale values
+```{r}
+library(scales)
+pal <- col_numeric("YlOrRd", domain = 1:81)  
+
+show_col(pal(-log(mutant_vs_wt$bonferroni)))
+show_col(pal(-log(aging$bonferroni)))
+show_col(pal(-log(hypoxia_vs_normoxia$bonferroni)))
+
+show_col(pal(seq(from=1,to=81,by=10)), labels = FALSE)
+show_col(pal(c(-log(summary_ireSig$bonferroni))))
+
+summary_ireSig %>% mutate(name = paste0(id, "_", Geneset)) %>%
+  dplyr::select(name, bonferroni) %>% column_to_rownames("name") %>% 
+  mutate(log = -log(bonferroni)) %>% 
+  pheatmap(color = pal(seq(from=1,to=81,by=10)))
+
+pheatmap(summary_ireSig %>% 
+           dplyr::select(-id) %>% column_to_rownames("Geneset"))
+```
+
+### 4.1. Differences in significantly enriched gene sets with FDR or Bonferroni
+
+For the Wilkinson's p-value, we performed FDR and Bonferroni adjustments to obtain the adjusted p-values. 
+Below we can see number of gene sets found to be significant under FDR adjustment but that are not 
+significant under Bonferroni adjustment. 
+
+- Largest differences from the `mutant_vs_wt` comparisons.
+- The `normoxia_6mth_mutant_vs_wt` comparison is of significant biological interest. With Bonferroni adjustment, 3 genesets are significant. However, with FDR, 17 are significant, which would give us more to talk about in the discussion, especially as the Heme Metabolism gene set is included. However, under FDR adjustment, most gene sets are significant in most comparisons.
+```{r}
+gseaResults_h$combTest %>% lapply(function(x){
+    sig_with_bon <- x %>% filter(bonferroni < 0.05) %>% nrow()
+    sig_with_fdr <- x %>% filter(fdr < 0.05) %>% nrow()
+    res <- sig_with_fdr - sig_with_bon
+    return(res)
+})
+```
+
+```{r}
+gseaResults_h$combTest %>% lapply(function(x){
+    sig_with_bon <- x %>% filter(bonferroni < 0.05) %>% nrow()
+    sig_with_fdr <- x %>% filter(fdr < 0.05) %>% nrow()
+    res <- sig_with_fdr - sig_with_bon
+    return(sig_with_fdr)
+})
+```
+
+### 4.2. PCA of mroast comparisons
+
+```{r}
+test <- gseaResults_h2$indivTest %>% lapply(function(x){
+    x %>% .$mroast %>% dplyr::select(Geneset, PropDown, PropUp) %>% arrange(Geneset)
+})%>% bind_rows(.id="comparison") %>% melt %>%
+  dplyr::rename(prop = variable) %>%
+  dcast(Geneset + prop ~ comparison) %>% 
+  dplyr::mutate(Geneset = paste0(Geneset, "_", prop)) %>% 
+  dplyr::select(-prop) %>% 
+  column_to_rownames("Geneset")
+
+pca <- test%>%t%>%prcomp 
+
+pca_plot <- pca$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  as.data.frame %>%
+  rownames_to_column("comparison") %>%
+  ggplot(aes(x=PC1, y = PC2, color = comparison)) +
+  geom_point(alpha = 0.7,size=3) +
+  geom_text_repel(aes(label=comparison),size=2, hjust=-0.1, vjust=0.1)+
+  theme(aspect.ratio = 1) +
+  scale_color_manual(values=c(rep("magenta",2), rep("blue",2), rep("red",2), rep("magenta",2), rep("blue",2), rep("red",2)))+
+    labs(x = "Principal Component 1 (46.0%)", y = "Principal Component 2 (22.8%)")+
+  theme_bw()
+pca_plot
+summary(pca)
+screeplot(pca)
+
+export::graph2ppt(pca_plot, here("R/GSEA/fig/pca_mroast_proportions"))
+
+# saveRDS(pca_plot, here("R/GSEA/fig/pca_gseaResults_h2.rds"))
+
+```
+
+
+### 4.3. Top ranked gene sets
+
+```{r}
+gseaResults_h$combTest %>% lapply(function(x){
+    x %>% head(5)%>%rowwise()
+})
+```
+
+### 4.4. IRE Proportions Butterfly
+
+```{r fig.width=11}
+ireProp_barplot <- gseaResults_ire2$indivTest %>% lapply(function(x){
+    x$mroast %>% dplyr::select(Geneset, PropUp, PropDown)
+  }) %>%
+  bind_rows(.id = "comparison") %>% 
+  filter(Geneset %in% c("ire3_all","ire5_all")) %>% 
+  melt %>%
+  ggplot(aes(x = comparison, y =value, fill=variable)) + 
+  geom_col() + 
+  geom_text(aes(label=(round(value,digits = 2)*100)), position=position_stack(vjust=0.5))+
+  ggpol::facet_share(~Geneset) + 
+  coord_flip() +
+  theme_bw()
+
+ireProp_barplot
+
+graph2ppt(ireProp_barplot, here("R/GSEA/fig/ireProp_barplot"))
+```
+
+
+### 4.5. Heatmap showing genes contributing to similarity between `Q96K97/+ vs wt` and `hypoxia vs normoxia`
+
+This part is for a figure in the paper intended to show similarity between the young Q96K97/+ vs wild-type response to the hypoxia response. 
+
+```{r fig.width=11}
+# Read in limma DE results as a data.frame object
+write_fit_g <- readRDS(here("R/DE/data/write_fit_g.rds")) 
+
+# Extract results into list of data.frames, only 
+# keeping the four relevant comparisons for the figure.
+# Keeping consistent with mroast's condition of abs(t) > 2
+# to say whether proportions of genes in a gene set are 
+# up or down, we will also use this more relaxed condition here
+# for visualisation purposes. 
+comps <- list(
+  mutant_vs_wt_6mth = write_fit_g %>% 
+    filter(abs(t.normoxia_6mth_mutant_vs_wt) > 2) %>% 
+    dplyr::select(starts_with("Genes"), 
+                  contains("normoxia_6mth_mutant_vs_wt")),
+  # mutant_vs_wt_24mth = write_fit_g %>% 
+  #   filter(abs(t.normoxia_24mth_mutant_vs_wt) > 2) %>% 
+  #   dplyr::select(starts_with("Genes"), 
+  #                 contains("normoxia_24mth_mutant_vs_wt")),
+  hypoxia_vs_normoxia = write_fit_g %>% 
+    filter(abs(t.wt_6mth_hypoxia_vs_normoxia) > 2) %>% 
+    dplyr::select(starts_with("Genes"), 
+                  contains("wt_6mth_hypoxia_vs_normoxia")),
+  wtAging = write_fit_g %>% 
+    filter(abs(t.normoxia_wtAging) > 2) %>% 
+    dplyr::select(starts_with("Genes"), 
+                  contains("normoxia_wtAging"))
+) %>%
+  lapply(function(x){
+    x %<>% filter(Genes.ensembl_gene_id %in% ireGenes$ire3_all) %>%
+      dplyr::select(Genes.ensembl_gene_id, Genes.gene_name, starts_with("t"))
+  })
+
+
+
+# Extract genes in common for the two main comparisons we are 
+# interested in. Then join in the other two comparisons
+# and visualise. 
+heatmap_plot <- inner_join(comps$mutant_vs_wt_6mth, 
+           comps$hypoxia_vs_normoxia, 
+           by = c("Genes.ensembl_gene_id", "Genes.gene_name")) %>% 
+  # left_join(comps$mutant_vs_wt_24mth[, c("Genes.ensembl_gene_id",
+  #                                        "t.normoxia_24mth_mutant_vs_wt")], 
+  #           by = "Genes.ensembl_gene_id") %>%
+  left_join(comps$wtAging[, c("Genes.ensembl_gene_id", 
+                                         "t.normoxia_wtAging")],
+            by = c("Genes.ensembl_gene_id")) %>%
+  dplyr::select(Genes.gene_name, 
+                t.normoxia_6mth_mutant_vs_wt, 
+                t.wt_6mth_hypoxia_vs_normoxia,
+                #t.normoxia_24mth_mutant_vs_wt, 
+              t.normoxia_wtAging)%>% 
+  #dplyr::distinct(Genes.gene_name.x,.keep_all=TRUE) %>%
+  #filter(!is.na(Genes.gene_name.x))%>%
+  column_to_rownames("Genes.gene_name") %>% 
+  as.matrix %>% t %>% 
+  pheatmap::pheatmap(
+    scale = "none",
+    cellheight = 12,
+    cellwidth = 12,
+    treeheight_row = 0,
+    treeheight_col = 0,
+    border_color = "white", 
+    color = colorRampPalette(c("#10c1e5", "#82e0b4","#F9F9F9", "#FBB829", "#FF0066"))(100)
+  )
+
+ save_pheatmap_pdf(heatmap_plot, here("R/GSEA/fig/heatmap_mutantsSimilarToHypoxi2.pdf"), width = 11, height = 11.69)
+```
+
+An expanded version of the heatmap which has all genes that have abs(t) > 2 in the young mutant vs wild-type comparison and that 
+```{r fig.width=20}
+preheatmap <- comps$mutant_vs_wt_6mth %>% 
+  dplyr::select(Genes.ensembl_gene_id, Genes.gene_name, starts_with("t")) %>% 
+  left_join(comps$mutant_vs_wt_24mth[, c("Genes.ensembl_gene_id",
+                                         "t.normoxia_24mth_mutant_vs_wt")], 
+            by = "Genes.ensembl_gene_id") %>%
+  left_join(comps$wtAging[, c("Genes.ensembl_gene_id",
+                                         "t.normoxia_wtAging")], 
+            by = "Genes.ensembl_gene_id") %>%
+  left_join(comps$hypoxia_vs_normoxia[, c("Genes.ensembl_gene_id",
+                                          "t.wt_6mth_hypoxia_vs_normoxia")], 
+            by = "Genes.ensembl_gene_id") %>% 
+  dplyr::select(-Genes.ensembl_gene_id) %>%
+  column_to_rownames("Genes.gene_name") %>% 
+  as.matrix %>% t
+# preheatmap[is.na(preheatmap)] <- 0.0001
+
+heatmap_plot2 <- preheatmap %>% 
+  pheatmap::pheatmap(
+    cellheight = 10,
+    cellwidth = 10,
+    #cluster_rows = FALSE,
+    #cluster_cols = FALSE,
+    treeheight_row = 0,
+    treeheight_col = 0,
+    border_color = "white", 
+    color = colorRampPalette(c("#10c1e5", "#82e0b4","#F9F9F9", "#FBB829", "#FF0066"))(100)
+  ) 
+
+ save_pheatmap_pdf(heatmap_plot2, here("R/GSEA/fig/heatmap_6mthMutantVsWT.pdf"), width = 25, height = 11.69)
+
+```
+
+Steve suggested a simplified heatmap which plots expression values of the 3' IRE genes rather than t-statistics. 
+
+```{r }
+# Genes for inclusion on heatmap 
+genes_for_heatmap <- inner_join(comps$mutant_vs_wt_6mth, 
+                                comps$hypoxia_vs_normoxia, 
+                                by = "Genes.ensembl_gene_id") 
+
+genes_for_heatmap <- data.frame(
+  Genes.ensembl_gene_id = ireGenes$ire3_all
+) %>%
+  left_join(q96_dge$genes[, c("ensembl_gene_id", "gene_name")], by = c("Genes.ensembl_gene_id"="ensembl_gene_id")) %>%
+  filter(!is.na(gene_name))
+
+# We will extract the relevant samples for inclusion on heatmap. 
+# These will be:
+# 6 month wild-type, normoxia
+# 6 month mutant, normoxia
+# 6 month wild-type, hypoxia
+# 6 months mutant, hypoxia
+# And then limit the genes included to the ones defined above. 
+data_for_heatmap <- q96_dge %>%
+  cpm(log=TRUE) %>%
+  magrittr::extract(genes_for_heatmap$Genes.ensembl_gene_id , 1:16) %>%
+  #set_rownames(genes_for_heatmap$Genes.gene_name.x) 
+  set_rownames(genes_for_heatmap$gene_name)
+  
+
+heatmap_4 <- data_for_heatmap %>% 
+  pheatmap(
+    cluster_cols = FALSE,
+    scale = "row",
+    color = colorRampPalette(c("#10c1e5", "#82e0b4","#F9F9F9", "#FBB829", "#FF0066"))(100),
+    border_color = "white",
+    gaps_col = c(4,8,8,8,12),
+    cellheight = 10,
+    cellwidth = 10,
+    treeheight_row = 0
+  )
+ save_pheatmap_pdf(heatmap_4, here("R/GSEA/fig/fig_4_heatmap.pdf"), width = 11, height = 200)
+
+
+
+
+
+comps <- list(
+  mutant_vs_wt_6mth = write_fit_g %>% 
+    filter(abs(t.normoxia_6mth_mutant_vs_wt) > 2) %>% 
+    dplyr::select(starts_with("Genes"), 
+                  contains("normoxia_6mth_mutant_vs_wt")),
+  mutant_vs_wt_24mth = write_fit_g %>% 
+    filter(abs(t.normoxia_24mth_mutant_vs_wt) > 2) %>% 
+    dplyr::select(starts_with("Genes"), 
+                  contains("normoxia_24mth_mutant_vs_wt")),
+  hypoxia_vs_normoxia = write_fit_g %>% 
+    filter(abs(t.wt_6mth_hypoxia_vs_normoxia) > 2) %>% 
+    dplyr::select(starts_with("Genes"), 
+                  contains("wt_6mth_hypoxia_vs_normoxia")),
+  wtAging = write_fit_g %>% 
+    filter(abs(t.normoxia_wtAging) > 2) %>% 
+    dplyr::select(starts_with("Genes"), 
+                  contains("normoxia_wtAging"))
+) %>%
+  lapply(function(x){
+    x %<>% filter(Genes.ensembl_gene_id %in% ireGenes$ire3_all)
+  })
+
+```
+
 
 ## 5. Proportions of up/down genes in each geneset
 
@@ -287,7 +615,7 @@ Try with just the following two comparisons first:
 
 ```{r, fig.width=11}
 # extract up/downregulated gene proportions from mroast
-x_props <- gseaResults_h$indivTest$normoxia_6mth_mutant_vs_wt$mroast %>% 
+x_props <- gseaResults_h2$indivTest$normoxia_6mth_mutant_vs_wt$mroast %>% 
   dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
   dplyr::mutate(contrast="normoxia_6mth_mutant_vs_wt",
                 up = NGenes * PropUp,
@@ -305,7 +633,7 @@ x_fry_with_props <- gseaResults_h$indivTest$normoxia_6mth_mutant_vs_wt$fry %>%
 x_fry_with_props
 
 # extract proportions from mroast
-y_props <- gseaResults_h$indivTest$normoxia_24mth_mutant_vs_wt$mroast %>% 
+y_props <- gseaResults_h2$indivTest$normoxia_24mth_mutant_vs_wt$mroast %>% 
   dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
   dplyr::mutate(contrast="normoxia_24mth_mutant_vs_wt",
                 up = NGenes * PropUp,
@@ -336,12 +664,14 @@ butterfly <- bind_rows(x_fry_with_props, y_fry_with_props) %>%
   ggplot(aes(x = Geneset, y = ngenes, fill = direction)) +
   geom_col() +
   ggpol::facet_share(~contrast, scales = "free") +
-  scale_fill_manual(values=c("#DDDDDD","#83AF9B","#FE4365"))+
+  scale_fill_manual(values=c("#DDDDDD","cornflowerblue","#FE4365"))+
   coord_flip() +
   theme(axis.line.y = element_blank())
 
 
 butterfly
+
+export::graph2ppt(butterfly, here("R/GSEA/fig/butterfly/young_mutant_vs_wt"))
 
 # I can't figure out how to horizontally flip the left-panel with ggplot so for now
 # will export this and manually adjust in powerpoint:
@@ -349,6 +679,131 @@ butterfly
 
 ```
 
+Create butterfly plot for the hypoxia vs normoxia comparison
+
+```{r fig.width=11}
+# extract up/downregulated gene proportions from mroast
+x_props <- gseaResults_h2$indivTest$normoxia_6mth_mutant_vs_wt$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="normoxia_6mth_mutant_vs_wt",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+# join to fry results
+x_fry_with_props <- gseaResults_h$indivTest$normoxia_6mth_mutant_vs_wt$fry %>%
+  #dplyr::filter(FDR.Mixed < 0.05) %>%
+  dplyr::select(Geneset) %>%
+  left_join(x_props)
+
+x_fry_with_props
+
+# extract proportions from mroast
+y_props <- gseaResults_h2$indivTest$hypoxia_6mth_mutant_vs_wt$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="hypoxia_6mth_mutant_vs_wt",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+# join to fry results
+y_fry_with_props <- gseaResults_h$indivTest$hypoxia_6mth_mutant_vs_wt$fry %>%
+  #dplyr::filter(FDR.Mixed < 0.05) %>%
+  dplyr::select(Geneset) %>%
+  left_join(y_props)
+
+y_fry_with_props
+
+# create the plot
+# adapted from https://stackoverflow.com/questions/4559229/drawing-pyramid-plot-using-r-and-ggplot2
+butterfly2 <- bind_rows(x_fry_with_props, y_fry_with_props) %>%
+  dplyr::mutate(Geneset = gsub(x = Geneset, pattern = "_", replacement = " "),
+                Geneset = gsub(x = Geneset, pattern = "HALLMARK", replacement = "")) %>%
+  reshape2::melt(id.vars=c("Geneset","NGenes","contrast")) %>%
+  dplyr::arrange(desc(NGenes)) %>% 
+  dplyr::rename(direction = variable, ngenes = value) %>%
+  dplyr::mutate(Geneset = factor(Geneset, levels = unique(Geneset)),
+                direction = factor(direction, levels = c("notSig", "down", "up")),
+                contrast = factor(contrast, levels = c("normoxia_6mth_mutant_vs_wt","hypoxia_6mth_mutant_vs_wt"))) %>%
+  ggplot(aes(x = Geneset, y = ngenes, fill = direction)) +
+  geom_col() +
+  ggpol::facet_share(~contrast) +
+  scale_fill_manual(values=c("#DDDDDD","cornflowerblue","#FE4365"))+
+  coord_flip() +
+  theme(axis.line.y = element_blank())
+
+
+butterfly2
+export::graph2ppt(butterfly2, here("R/GSEA/fig/butterfly/2_mutant_vs_wildtype_normoxia_6mth"))
+```
+
+
+
+```{r, fig.width=11}
+# extract up/downregulated gene proportions from mroast
+x_props <- gseaResults_h2$indivTest$normoxia_24mth_mutant_vs_wt$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="normoxia_24mth_mutant_vs_wt",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+# join to fry results
+x_fry_with_props <- gseaResults_h$indivTest$normoxia_24mth_mutant_vs_wt$fry %>%
+  #dplyr::filter(FDR.Mixed < 0.05) %>%
+  dplyr::select(Geneset) %>%
+  left_join(x_props)
+
+x_fry_with_props
+
+# extract proportions from mroast
+y_props <- gseaResults_h2$indivTest$hypoxia_24mth_mutant_vs_wt$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="hypoxia_24mth_mutant_vs_wt",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+# join to fry results
+y_fry_with_props <- gseaResults_h$indivTest$hypoxia_24mth_mutant_vs_wt$fry %>%
+  #dplyr::filter(FDR.Mixed < 0.05) %>%
+  dplyr::select(Geneset) %>%
+  left_join(y_props)
+
+y_fry_with_props
+
+# create the plot
+# adapted from https://stackoverflow.com/questions/4559229/drawing-pyramid-plot-using-r-and-ggplot2
+butterfly3 <- bind_rows(x_fry_with_props, y_fry_with_props) %>%
+  dplyr::mutate(Geneset = gsub(x = Geneset, pattern = "_", replacement = " "),
+                Geneset = gsub(x = Geneset, pattern = "HALLMARK", replacement = "")) %>%
+  reshape2::melt(id.vars=c("Geneset","NGenes","contrast")) %>%
+  dplyr::arrange(desc(NGenes)) %>% 
+  dplyr::rename(direction = variable, ngenes = value) %>%
+  dplyr::mutate(Geneset = factor(Geneset, levels = unique(Geneset)),
+                direction = factor(direction, levels = c("notSig", "down", "up")),
+                contrast = factor(contrast, levels = c("normoxia_24mth_mutant_vs_wt","hypoxia_24mth_mutant_vs_wt"))) %>%
+  ggplot(aes(x = Geneset, y = ngenes, fill = direction)) +
+  geom_col() +
+  ggpol::facet_share(~contrast, scales = "free") +
+  scale_fill_manual(values=c("#DDDDDD","cornflowerblue","#FE4365"))+
+  coord_flip() +
+  theme(axis.line.y = element_blank())
+
+
+butterfly3
+
+
+export::graph2ppt(butterfly3, here("R/GSEA/fig/butterfly/2_mutant_vs_wildtype_normoxia_24mth"))
+```
 
 
 
@@ -467,9 +922,20 @@ v$genes %<>% rownames_to_column("ensembl_gene_id")
 After running `combinedGSEA` for the relevant indices, the results were saved as follows. 
 
 ```{r eval=FALSE}
-gseaResults_kegg %>% saveRDS(here("R","GSEA","results","gseaResults_kegg_k97.rds"))
-gseaResults_ire %>% saveRDS(here("R","GSEA","results","gseaResults_ire_k97.rds"))
-gseaResults_h %>% saveRDS(here("R","GSEA","results","gseaResults_h_k97.rds"))
+gseaResults_kegg <- combinedGSEA(v, kegg_idx, design, contrasts)
+gseaResults_ire <- combinedGSEA(v, ireGenes_idx, design, contrasts)
+gseaResults_h <- combinedGSEA(v, h_idx, design, contrasts)
+```
+
+
+```{r eval=FALSE}
+# gseaResults_kegg %>% saveRDS(here("R","GSEA","results","gseaResults_kegg_k97.rds"))
+# gseaResults_ire %>% saveRDS(here("R","GSEA","results","gseaResults_ire_k97.rds"))
+# gseaResults_h %>% saveRDS(here("R","GSEA","results","gseaResults_h_k97.rds"))
+
+gseaResults_kegg_k97 <-  readRDS(here("R","GSEA","results","gseaResults_kegg_k97.rds"))
+gseaResults_ire_k97 <-  readRDS(here("R","GSEA","results","gseaResults_ire_k97.rds"))
+gseaResults_h_k97 <- readRDS(here("R","GSEA","results","gseaResults_h_k97.rds"))
 ```
 
 Quick inspection of the results indicates some differences straight up. 
@@ -484,6 +950,30 @@ gseaResults_ire$combTest$K97_mutYoung_wtYoung
 
 ```{r}
 gseaResults_h$combTest$K97_mutYoung_wtYoung %>% filter(bonferroni < 0.05)
+```
+
+```{r}
+gseaResults_ire$combTest %>% lapply(function(x){
+  x%>% filter(bonferroni < 0.05) %>% 
+    filter(Geneset %in% c("ire3_all","ire5_all")) %>%
+    rowwise})
+```
+
+```{r}
+
+```
+
+## 8. UpSet Plot
+
+- We want to create a plot which shows the IRE genes in common between comparisons. 
+- To do this, we first filter all comparisons for IRE-containing genes, and then filter for those which have `abs(t) > 2` as a measure of differential expression. 
+- Then `intersect` 
+
+
+```{r}
+library(UpSetR)
+
+upset()
 ```
 
 

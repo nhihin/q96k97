@@ -1,0 +1,471 @@
+---
+title: "Mayo Dataset"
+output: html_notebook
+---
+
+```{r Setup, include=F, message=F}
+# Packages
+library(dplyr)
+library(readr)
+library(tibble)
+library(magrittr)
+library(biomaRt)
+library(edgeR)
+library(EDASeq)
+library(pheatmap)
+library(ggplot2)
+
+# Directories
+dataDir <- file.path("~/Box/Projects/2_FishToHumanAD/datasets")
+```
+
+
+## Description
+
+- **Tissue**: Human cerebellum and temporal cortex
+- **Platform**: Illumina HiSeq 2000, 101 bp, paired end RNA-seq
+- **URL**: [Synapse](https://www.synapse.org/#!Synapse:syn5550404)
+- **Samples**: Post mortem AD cases (Braak >= 4.0), pathological diagnosis of PSP (Braak <= 3), pathologic aging (Braak <= 3), elderly control (Braak <= 3)
+- **Study Description**: This study is independent of studies described under the Mayo Clinic Alzheimer’s Disease Genetics Studies (MCADGS). Data is provided for the Mayo RNAseq Study, with whole transcriptome data for 275 Cerebellum (CBE) and 276 Temporal cortex (TCX) samples from 312 North American Caucasian subjects with neuropathological diagnosis of AD, progressive supranuclear palsy (PSP), pathologic aging (PA) or elderly controls (CON) without neurodegenerative diseases. Within this cohort, all AD and PSP subjects were from the Mayo Clinic Brain Bank (MCBB), and all PA subjects were obtained from the Banner Sun Health Research Institute (Banner). Thirty-four control CBE and 31 control TCX samples were from the MCBB, and the remaining control tissue was from Banner. All subjects selected from the MCBB and Banner underwent neuropathologic evaluation by Dr. Dennis Dickson or Dr. Thomas Beach, respectively. All ADs had definite diagnosis according to the NINCDS-ADRDA criteria and had Braak NFT stage of IV or greater. Control subjects had Braak NFT stage of III or less, CERAD neuritic and cortical plaque densities of 0 (none) or 1 (sparse) and lacked any of the following pathologic diagnoses: AD, Parkinson’s disease (PD), DLB, VaD, PSP, motor neuron disease (MND), CBD, Pick’s disease (PiD), Huntington’s disease (HD), FTLD, hippocampal sclerosis (HipScl) or dementia lacking distinctive histology (DLDH). Subjects with PA also lacked the above diagnoses and had Braak NFT stage of III or less, but had CERAD neuritic and cortical plaque densities of 2 or more. None of the PA subjects had a clinical diagnosis of dementia or mild cognitive impairment.
+
+## Import Data & Pre-processing
+
+Import the gene counts and sample tables for the cerebellum (CBE) and temporal cortex (TCX) samples:
+```{r}
+data_mayo <- list(
+  counts_cbe = read_tsv(file.path(dataDir, "mayo", "MayoRNAseq_RNAseq_CBE_geneCounts.tsv")),
+  counts_tcx = read_tsv(file.path(dataDir, "mayo", "MayoRNAseq_RNAseq_TCX_geneCounts.tsv")),
+  samples_cbe = read_csv(file.path(dataDir, "mayo", "MayoRNAseq_RNAseq_CBE_covariates.csv")),
+  samples_tcx = read_csv(file.path(dataDir, "mayo", "MayoRNAseq_RNAseq_TCX_covariates.csv"))
+)
+
+# lapply(data_mayo, dim) # Slight disrepancy in the number of samples in counts and sample tables.
+
+# Filter to only include samples which are present in the counts matrices.
+data_mayo$samples_cbe %<>% 
+  filter(SampleID %in% colnames(data_mayo$counts_cbe), !is.na(Diagnosis)) %>%
+  mutate(Name = gsub(x = SampleID, pattern = "_CER", replacement = ""))
+
+data_mayo$samples_tcx %<>% 
+  filter(ID %in% colnames(data_mayo$counts_tcx), !is.na(Diagnosis)) %>%
+  dplyr::rename(SampleID = ID) %>%
+  mutate(Name = gsub(x = SampleID, pattern = "_TCX", replacement = ""))
+
+# Reorder the samples n the count matrices to be in the same order as the sample tables.
+data_mayo$counts_cbe %<>% magrittr::extract(, c("ensembl_id", data_mayo$samples_cbe$SampleID))
+data_mayo$counts_tcx %<>% magrittr::extract(, c("ensembl_id", data_mayo$samples_tcx$SampleID))
+
+# Remove genes that don't have counts measured in all samples in either the CBE or TCX datasets
+data_mayo$counts_cbe %<>% 
+  filter(complete.cases(.)) %>%
+  as.data.frame %>% 
+  column_to_rownames("ensembl_id")
+
+data_mayo$counts_tcx %<>% 
+  filter(complete.cases(.)) %>% 
+  as.data.frame %>% 
+  column_to_rownames("ensembl_id")
+
+lapply(data_mayo, dim) # Check dimensions. 
+
+# data_mayo$counts_cbe %>% mutate(rowSum = rowSums(.[-1])) %>% arrange(desc(rowSum))  %>% left_join(genes, by = c("ensembl_id"="ensembl_gene_id")) %>% head(100) %>% View
+```
+
+Merge the TCX and CBE datasets, retaining samples and genes that are present in both datasets: 
+```{r}
+data_mayo$samples_tcx %<>% dplyr::rename(Sex=Gender, Flowcell=FLOWCELL)
+
+keepSamples <- inner_join(data_mayo$samples_cbe, 
+                            data_mayo$samples_tcx, 
+                            by = c("Name", "Diagnosis", "Sex", "ApoE", "PMI", "AgeAtDeath"),
+                            suffix = c("_CBE", "_TCX"))
+
+mergedSamples <- rbind(data_mayo$samples_cbe, data_mayo$samples_tcx) %>%
+  filter(Name %in% keepSamples$Name) 
+
+mergedCounts <- inner_join(data_mayo$counts_cbe %>% rownames_to_column("ensembl_id"), 
+                           data_mayo$counts_tcx%>% rownames_to_column("ensembl_id"), 
+                           by = "ensembl_id") %>%
+  magrittr::extract(, c("ensembl_id", mergedSamples$SampleID)) %>%
+  column_to_rownames("ensembl_id") 
+
+mergedSamples # Preview the samples table
+mergedCounts # Preview the gene counts
+```
+
+Number of individuals in this dataset for which we have both cerebellum and temporal cortex measurements:
+```{r}
+mergedSamples %>% dplyr::group_by(Tissue) %>% dplyr::summarise(n=n()) 
+```
+
+Number of female (F) and male (M) individuals in the dataset:
+```{r}
+mergedSamples %>% dplyr::group_by(Sex) %>% dplyr::summarise(n=n()) 
+```
+
+Age distribution of individuals is biased towards older individuals > 75 years old.
+```{r}
+mergedSamples2 <- mergedSamples %>% mutate(AgeAtDeath = as.numeric(gsub(x = AgeAtDeath, pattern = "90_or_above", replacement = 91)))
+
+paste0("Mean age: ", round(mean(mergedSamples2$AgeAtDeath),1))
+paste0("Median age: ", round(median(mergedSamples2$AgeAtDeath),1))
+paste0("Standard deviation of age: ", round(sd(mergedSamples2$AgeAtDeath),1))
+paste0("Median absolute deviation of age: ", round(mad(mergedSamples2$AgeAtDeath),1))
+
+mergedSamples %>%
+  mutate(AgeAtDeath = as.numeric(gsub(x = AgeAtDeath, pattern = "90_or_above", replacement = 90)) ) %>% 
+  use_series("AgeAtDeath") %>% 
+  hist(main="Age Distribution", breaks=30)
+
+```
+
+Are age distributions equally represented in each gender?
+```{r}
+mergedSamples2 %>% dplyr::group_by(AgeAtDeath, Sex) %>% dplyr::summarise(n=n()) 
+
+mergedSamples2 %>% 
+  dplyr::group_by(Sex) %>% 
+  dplyr::summarise(mean=mean(AgeAtDeath),
+                   median=median(AgeAtDeath),
+                   sd = sd(AgeAtDeath),
+                   mad = mad(AgeAtDeath)) 
+```
+
+Number of individuals with each diagnosis. The pathologic aging group has significantly fewer individuals (n=44). The number of males and females in each group is not equal, but not too different that it should bias the results. 
+```{r}
+mergedSamples2 %>% dplyr::group_by(Diagnosis, Sex) %>% dplyr::summarise(n=n())
+```
+
+Most individuals have the 3/3 ApoE genotype or the 3/4 ApoE genotype. However, some individuals have other ones too.
+```{r}
+mergedSamples2 %>% dplyr::group_by(ApoE) %>% dplyr::summarise(n=n())
+```
+
+## Principal Component Analysis
+
+Principal component analysis of the combined TCX and CBE samples:
+
+- **Tissue** (cerebellum or temporal cortex) contributes to the largest source of variation in the gene expression profiles. However, there are three outliers which cluster with the opposite tissue (?)
+- **ApoE** genotype does have an affect on gene expression, although this is much less than tissue. 
+- **Diagnosis** appears to have a minor effect on gene expression. 
+- **Sex** and **Source** (laboratory) do not have a major effect on gene expression. 
+
+```{r}
+pcaCounts <- mergedCounts %>% cpm(log=T) %>% t %>% prcomp
+
+ggbiplot::ggbiplot(pcaCounts, 
+                   choices = c(1,2),
+                     obs.scale = 1, 
+                     var.scale = 1, 
+                     labels.size = 1, 
+                     var.axes = FALSE, 
+                     varname.size = 1,
+                     groups = mergedSamples$Tissue, 
+                     ellipse = TRUE,
+                     circle = TRUE) +
+    scale_color_discrete(name = "Group") +
+    theme(legend.direction = "horizontal", 
+          legend.position = "bottom", 
+          aspect.ratio = 1)
+
+ggbiplot::ggbiplot(pcaCounts, 
+                   choices = c(2,3),
+                     obs.scale = 1, 
+                     var.scale = 1, 
+                     labels.size = 1, 
+                     var.axes = FALSE, 
+                     varname.size = 1,
+                     groups = as.factor(mergedSamples$ApoE), 
+                     ellipse = TRUE,
+                     circle = TRUE) +
+    scale_color_discrete(name = "Group") +
+    theme(legend.direction = "horizontal", 
+          legend.position = "bottom", 
+          aspect.ratio = 1)
+
+
+ggbiplot::ggbiplot(pcaCounts, 
+                   choices = c(2,4),
+                     obs.scale = 1, 
+                     var.scale = 1, 
+                     labels.size = 1, 
+                     var.axes = FALSE, 
+                     varname.size = 1,
+                     groups = as.factor(mergedSamples$Diagnosis), 
+                     ellipse = TRUE,
+                     circle = TRUE) +
+    scale_color_discrete(name = "Group") +
+    theme(legend.direction = "horizontal", 
+          legend.position = "bottom", 
+          aspect.ratio = 1)
+```
+
+## BioMart Gene Annotation
+
+Retrieve gene information from BioMart. 
+```{r}
+# Load human biomart object
+huMart <- useMart("ENSEMBL_MART_ENSEMBL", dataset = "hsapiens_gene_ensembl")
+
+# Retrieve gene annotations from BioMart. 
+genes <- getBM(
+  attributes = c("ensembl_gene_id", "external_gene_name", "description", "gene_biotype"), 
+  filters = "ensembl_gene_id",
+  values = rownames(mergedCounts), 
+  mart = huMart) 
+
+genes2 <- as.data.frame(org.Hs.egENSEMBL) %>% 
+  left_join(as.data.frame(org.Hs.egSYMBOL)) %>% 
+  left_join(as.data.frame(org.Hs.egGENENAME))
+
+genes3 <- mergedCounts %>% rownames_to_column("ensembl_gene_id") %>%
+  left_join(genes, by = c("ensembl_gene_id")) %>%
+  distinct(ensembl_gene_id, .keep_all = TRUE) %>%
+  dplyr::select(-contains("TCX"), -contains("CER"))%>%
+  column_to_rownames("ensembl_gene_id")
+
+# genes2 <- genes %>%
+#   right_join(mergedCounts %>% rownames_to_column("ensembl_gene_id")) %>%
+#   dplyr::select(-contains("TCX"), -contains("CER")) %>%
+#   column_to_rownames("ensembl_gene_id") %>%
+#   extract(rownames(mergedCounts),) %>%
+#   rownames_to_column("ensembl_gene_id") %>%
+#   filter(complete.cases(.)) %>%
+#   column_to_rownames("ensembl_gene_id")
+# 
+# genes2 <- genes %>%
+#   mutate(
+#     gene_gc_content = percentage_gene_gc_content/100,
+#     length = end_position-start_position
+#     ) %>%
+#   dplyr::select(-percentage_gene_gc_content, -end_position, -start_position) %>%
+#   column_to_rownames("ensembl_gene_id") %>%
+#   extract(rownames(mergedCounts),) %>%
+#   rownames_to_column("ensembl_gene_id") %>%
+#   filter(complete.cases(.)) %>%
+#   column_to_rownames("ensembl_gene_id")
+# 
+# mergedCounts %<>% extract(rownames(genes2),) 
+
+genes3
+dim(genes3)
+dim(mergedCounts)
+table(rownames(genes3)==rownames(mergedCounts))
+```
+
+## DGEList and Normalisation
+```{r}
+mayo_DGE <- DGEList(
+  counts = mergedCounts,
+  samples = mergedSamples,
+  genes = genes3,
+  remove.zeros = TRUE
+) %>%
+  calcNormFactors("TMM")
+
+mayo_DGE$samples %<>%
+  mutate(
+    Tissue = as.factor(Tissue),
+    Diagnosis = as.factor(gsub(x = Diagnosis, pattern = " ", replacement = "_")) %>% relevel("Control"),
+    Sex = as.factor(Sex),
+    AgeAtDeath = as.numeric(gsub(x = AgeAtDeath, pattern = "90_or_above", replacement = 90)),
+    ApoE = as.factor(ApoE),
+    Name = as.factor(Name)
+  )
+```
+
+## Filtering
+We will filter out the lowest expressed 25% of genes.  
+```{r}
+sufficientlyExpGenes <- rowSums(cpm(mayo_DGE, log=TRUE)) > quantile(rowSums(cpm(mayo_DGE, log=TRUE)), 0.25)
+
+mayo_DGE <- mayo_DGE[sufficientlyExpGenes,,keep.lib.sizes = FALSE]
+
+dim(mayo_DGE)
+```
+
+## Differential Gene Expression Analysis
+
+- Because each individual has two tissue measurements (teporal cortex and cerebellum) then we can determine the tissue-specific effect within saples. 
+
+```{r}
+# Create the design matrix defining  which samples belong to which groups. 
+mayo_DGE$samples %<>% mutate(group = as.factor(paste0(Diagnosis, "_", Tissue)))
+
+design <- model.matrix(~0 + group, data = mayo_DGE$samples) %>%
+  set_colnames(gsub(x = colnames(.), pattern = "group", replacement = ""))
+
+# Apply the voom method, which transforms discrete count data into continuous log-normal distribution. 
+#voomData <- voom(mayo_DGE, design = design, plot = TRUE)
+voomData <- readRDS("~/Box/Projects/2_FishToHumanAD/datasets/mayo/voomData.rds")
+
+#dupcors <- duplicateCorrelation(voomData, design, block=mayo_DGE$samples$Name)
+dupcors <- 0.2299367
+
+sampleWeights <- data.frame(rownames(voomData$targets), voomData$sample.weights) %>% 
+  set_colnames(c("samples", "weights"))
+
+# Define the contrasts (comparisons) which we will test for differential expression.
+contrasts <- makeContrasts(
+  levels = colnames(design), 
+  
+  # Effect of  cerebellum vs temporal cortex in each disease condition
+  AD_TissueEffect = AD_Cerebellum-AD_TemporalCortex,
+  PA_TissueEffect = Pathologic_Aging_Cerebellum-Pathologic_Aging_TemporalCortex,
+  Control_TissueEffect = Control_Cerebellum-Control_TemporalCortex,
+  PSP_TissueEffect = PSP_Cerebellum-PSP_TemporalCortex,
+  
+  # Effect of disease state / diagnosis in cerebellum tissue
+  Cerebellum_ADvsControl = AD_Cerebellum-Control_Cerebellum,
+  Cerebellum_ADvsPA = AD_Cerebellum-Pathologic_Aging_Cerebellum,
+  Cerebellum_ADvsPSP = AD_Cerebellum-PSP_Cerebellum,
+  Cerebellum_PAvsControl = Pathologic_Aging_Cerebellum-Control_Cerebellum,
+  Cerebellum_PSPvsControl = PSP_Cerebellum-Control_Cerebellum,
+  
+  # Effect of disease state / diagnosis in temporal cortex tissue
+  TemporalCortex_ADvsControl = AD_TemporalCortex-Control_TemporalCortex,
+  TemporalCortex_ADvsPA = AD_TemporalCortex-Pathologic_Aging_TemporalCortex,
+  TemporalCortex_ADvsPSP = AD_TemporalCortex-PSP_TemporalCortex,
+  TemporalCortex_PAvsControl = Pathologic_Aging_TemporalCortex-Control_TemporalCortex,
+  TemporalCortex_PSPvsControl = PSP_TemporalCortex-Control_TemporalCortex
+)
+
+# Do moderated t-test for each gene to test for differential expression. 
+# The empirical Bayes step "borrows" information across genes to increase accuracy of variance estimation.
+fit <- lmFit(voomData, design, block = mayo_DGE$samples$Name, correlation = dupcors) %>%
+  contrasts.fit(contrasts) %>%
+  eBayes(robust = TRUE)
+fit <- readRDS(file.path(dataDir, "mayo", "fit.rds"))
+#plotSA(fit, main = "Final model: Mean-variance trend")
+
+# Apply fdr adjustment and adjusted p-value cutoff of 0.05 to define significance.
+results <- decideTests(fit, p.value = 0.05, adjust.method = "fdr", method= "separate", lfc = 0.5)
+summary(results)
+```
+
+```{r}
+write_fit <- function(fit, results = NULL, adjust = "none", F.adjust = "none", method = "separate", ...) {
+    if (!is(fit, "MArrayLM")) 
+        stop("fit should be an MArrayLM object")
+    if (!is.null(results) && !is(results, "TestResults")) 
+        stop("results should be a TestResults object")
+    if (is.null(fit$t) || is.null(fit$p.value)) 
+        fit <- eBayes(fit)
+    method <- match.arg(method, c("separate", "global"))
+    p.value <- as.matrix(fit$p.value)
+    if (adjust == "none") {
+        p.value.adj <- NULL
+    }
+    else {
+        p.value.adj <- p.value
+        if (method == "separate") 
+            for (j in 1:ncol(p.value)) p.value.adj[, j] <- p.adjust(p.value[, 
+                j], method = adjust)
+        if (method == "global") 
+            p.value.adj[] <- p.adjust(p.value, method = adjust)
+    }
+    if (F.adjust == "none" || is.null(fit$F.p.value)) 
+        F.p.value.adj <- NULL
+    else F.p.value.adj <- p.adjust(fit$F.p.value, method = F.adjust)
+
+    tab <- list()
+    tab$A <- (fit$Amean)
+    tab$Coef <- (fit$coef)
+    tab$t <- (fit$t)
+    tab$p.value <- (p.value)
+    tab$p.value.adj <- (p.value.adj)
+    tab$F <- (fit$F)
+    tab$F.p.value <- (fit$F.p.value)
+    tab$F.p.value.adj <- tab$F.p.value.adj <- F.p.value.adj
+    tab$Res <- unclass(results)
+    tab$Genes <- fit$genes
+    tab <- data.frame(tab, check.names = FALSE)
+    return(tab)
+}
+```
+
+Export results.
+```{r}
+results_df <- write_fit(fit, results = results, adjust = "fdr", method = "separate")
+# saveRDS(results_df, file.path(dataDir, "mayo/results_df.rds"))
+```
+
+## Interpretation of Results
+
+### Tissue-specific expression
+
+The following Venn Diagram shows DE genes btween the cerebellum and temporal cortex for each of the four conditions (AD, PA, PSP, Control). The majority of DE genes are overlapping. However, there are oe changes which are specific to 
+```{r}
+results[, 1:4] %>% vennDiagram()
+```
+
+
+```{r}
+ADSimilarInBothTissues <- results_df %>% 
+  rownames_to_column("ensembl_gene_id") %>%
+  filter(Res.Cerebellum_ADvsControl != 0, 
+         Res.TemporalCortex_ADvsControl !=0, 
+         Res.Cerebellum_ADvsControl == Res.TemporalCortex_ADvsControl,
+         abs(Coef.Cerebellum_ADvsControl) > 0.5, 
+         abs(Coef.TemporalCortex_ADvsControl) > 0.5) %>%
+  dplyr::select(ensembl_gene_id, contains("Genes"), contains("ADvsControl"), -contains("p.value.T"), -contains("p.value.C"), -starts_with("t"))
+
+ADNotSimilarInBothTissues <- results_df %>% rownames_to_column("ensembl_gene_id") %>%
+  filter(Res.Cerebellum_ADvsControl != 0, 
+         Res.TemporalCortex_ADvsControl !=0, 
+         Res.Cerebellum_ADvsControl != Res.TemporalCortex_ADvsControl,
+         abs(Coef.Cerebellum_ADvsControl) > 0.5, 
+         abs(Coef.TemporalCortex_ADvsControl) > 0.5) %>%
+  dplyr::select(ensembl_gene_id, contains("Genes"), contains("ADvsControl"), -contains("p.value.T"), -contains("p.value.C"), -starts_with("t"))
+```
+
+The comparison between tissues can be made within subjects, and hence should be more precise than the comparison between diseased and normal, which must be made between subjects. This suggests that the cerebellum and temporal cortex do not differ greatly in gene expression. 
+
+```{r}
+test <- results_df %>% rownames_to_column("ensembl_gene_id") %>%
+  filter(Res.AD_TissueEffect != 0, Res.AD_TissueEffect != Res.Control_TissueEffect, #Filter for DE in tissue in AD patients, but either not DE or DE in opp. dir. in Control
+         abs(Coef.AD_TissueEffect) > 0.5, abs(Coef.Control_TissueEffect) > 0.5) %>%
+  dplyr::select(ensembl_gene_id, contains("Genes"),
+                contains("AD_TissueEffect"), contains(".Control_TissueEffect"), -t.AD_TissueEffect, -t.Control_TissueEffect, 
+                -p.value.AD_TissueEffect, -p.value.Control_TissueEffect)
+dim(test)
+
+```
+
+## Results
+
+### Tissue-specific Effects
+```{r}
+similarInBothTissues <- results_df %>% 
+  rownames_to_column("ensembl_gene_id") %>%
+  filter(Res.AD_TissueEffect != 0 & 
+           Res.PA_TissueEffect != 0 & 
+           Res.Control_TissueEffect != 0 & 
+           Res.PSP_TissueEffect != 0) %>% 
+  dplyr::select(contains("Genes"), ensembl_gene_id, contains("TissueEffect"))
+
+# Tissue-specific differences specific to Alzheimers disease patients
+results_df %>% 
+  rownames_to_column("ensembl_gene_id") %>% 
+  filter(Res.AD_TissueEffect != 0, !(ensembl_gene_id %in% similarInBothTissues$ensembl_gene_id)) %>% 
+  paste(nrow(.), " genes")
+
+results_df %>% 
+  rownames_to_column("ensembl_gene_id") %>% 
+  filter(Res.PA_TissueEffect != 0, !(ensembl_gene_id %in% similarInBothTissues$ensembl_gene_id)) %>% 
+  dim()
+
+results_df %>% 
+  rownames_to_column("ensembl_gene_id") %>% 
+  filter(Res.PA_TissueEffect != 0, !(ensembl_gene_id %in% similarInBothTissues$ensembl_gene_id)) %>% 
+  dim()
+
+```
+
+
+
+
+
+
+
+
