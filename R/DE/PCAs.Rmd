@@ -1,0 +1,275 @@
+---
+title: "Principal Component Analysis"
+output: html_notebook
+---
+
+```{r include = FALSE}
+library(here)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(tibble)
+library(edgeR)
+library(limma)
+library(export)
+
+# ggplot2 theme
+theme_set(theme_bw())
+```
+
+
+## 0. Introduction
+
+The purpose of this analysis is to use PCA to visualise the similarity between samples within the K97fs and Q96K97 datasets, based on expression of all genes and expression of IRE genes. 
+
+## 1. Import Data
+
+```{r}
+# K97fs dataset
+k97_dge <- readRDS(here("R","DE","data","k97fs_dge.rds"))
+# Q96K97 dataset
+q96_dge <- readRDS(here("R","DE","data","dge_g_filtered.rds"))
+```
+
+- The saved `DGEList` objects post-filtering were imported. Filtering was done as follows:
+
+    - **K97fs**: At least 1 cpm in at least 3 samples (`r nrow(k97_dge$counts)` genes)
+    - **Q96K97**: At least 1 cpm in at least 4 samples (`r nrow(q96_dge$counts)` genes)
+    
+## 2. PCA on filtered gene expression
+
+- PCA for Q96K97 dataset
+
+```{r}
+pca_analysis1 <- prcomp(t(cpm(q96_dge, log=TRUE)))
+
+pca_geneExpression <- pca_analysis1$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  as.data.frame %>%
+  rownames_to_column("samples") %>%
+  left_join((q96_dge$samples %>% rownames_to_column("samples")), by="samples") %>%
+  ggplot(aes(x=PC1, y = PC2, colour = Hypoxia, shape = paste0(Genotype, "_", Age))) +
+  geom_point(alpha = 0.7,size=3) + 
+  scale_shape_manual(values = c(0,1,15,16),
+                     labels = c("Q96_K97del/+, 24 months", "Q96_K97del/+, 6 months", "+/+, 24 months", "+/+, 6 months")) +
+  theme(aspect.ratio = 1) +
+  scale_colour_manual(values = c("#555555","red"), labels = c("Normoxia","Hypoxia")) +
+    labs(x = "Principal Component 1 (19.15%)", y = "Principal Component 2 (6.0%)", 
+         colour = "Oxygen Level", shape = "Genotype and Age")
+
+summary(pca_analysis1)
+screeplot(pca_analysis1)
+pca_geneExpression
+
+export::graph2ppt(pca_geneExpression, here("R/DE/fig/pca_geneExpression"))
+#export::graph2pdf(pca_geneExpression, here("R/DE/fig/pca_geneExpression"))
+```
+
+- PCA for K97fs dataset
+
+```{r}
+pca_analysis2 <- prcomp(t(cpm(k97_dge, log=TRUE)))
+
+pca_geneExpression2 <- pca_analysis2$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  as.data.frame %>%
+  rownames_to_column("samples") %>%
+  left_join((k97_dge$samples %>% rownames_to_column("samples")), by="samples") %>%
+  ggplot(aes(x=PC1, y = PC2, shape = paste0(psen1, "_", months))) +
+  geom_point(alpha = 1,size=3, colour = "black") + 
+  scale_shape_manual(values = c(0,1,15,16),
+                     labels =c("K97fs/+, 24 months", "K97fs/+, 6 months", "+/+, 24 months", "+/+, 6 months")) +
+  theme(aspect.ratio = 1) +
+  #scale_colour_manual(values = c("red","cornflowerblue"), labels = c("Hypoxia","Normoxia")) +
+    labs(x = "Principal Component 1 (26.74%)", y = "Principal Component 2 (21.39%)", 
+         shape = "Genotype and Age")
+
+summary(pca_analysis2)
+screeplot(pca_analysis2)
+pca_geneExpression2
+
+export::graph2ppt(pca_geneExpression2, here("R/DE/fig/pca_geneExpression_k97"))
+export::graph2pdf(pca_geneExpression2, here("R/DE/fig/pca_geneExpression_k97"))
+```
+
+
+
+
+## 3. PCA on IRE genes
+
+- We will now restrict genes to ones containing predicted IREs only. 
+- Previously, we used the **SIREs** webserver to predict IRE-containing genes based on all zebrafish transcript fasta sequences in the GRCz11 reference. 
+- Here we will import in a list of the genes we predicted to contain IREs. 
+
+```{r}
+ireGenes <- readRDS(here("R", "GSEA", "data", "ireGenes.rds"))
+ireGenes %>% str
+```
+
+### 3.1. Q96K97 data
+
+- PCA on Q96K97 data, restricted to **3' IRE genes** indicates good separation between sample groups based on genotype, age, and oxygen level. 
+
+```{r}
+q96_expressedIREs <- q96_dge %>% cpm(log=TRUE) %>%
+  as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>%
+  dplyr::filter(ensembl_gene_id %in% ireGenes$ire3_all) %>%
+  column_to_rownames("ensembl_gene_id") %>%
+  as.matrix
+
+pca_q96_ires <- q96_expressedIREs %>% t %>% prcomp
+
+pca_q96_ires_plot <- pca_q96_ires$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  as.data.frame %>%
+  rownames_to_column("samples") %>%
+  left_join((q96_dge$samples %>% rownames_to_column("samples")), by="samples") %>%
+  ggplot(aes(x=PC1, y = PC2, colour = Hypoxia, shape = paste0(Genotype, "_", Age))) +
+  geom_point(alpha = 0.7,size=3) + 
+  scale_shape_manual(values = c(0,1,15,16),
+                     labels = c("Q96K97/+, 24 months", "Q96K97/+, 6 months", "+/+, 24 months", "+/+, 6 months")) +
+  theme(aspect.ratio = 1) +
+  scale_colour_manual(values = c("cornflowerblue","red"), labels = c("Normoxia","Hypoxia")) +
+    labs(x = "Principal Component 1 (26.1%)", y = "Principal Component 2 (8.4%)", 
+         colour = "Oxygen Level", shape = "Genotype and Age")
+
+summary(pca_q96_ires)
+screeplot(pca_q96_ires)
+pca_q96_ires_plot
+
+# export::graph2ppt(pca_q96_ires_plot, here("R","DE","fig","pca_3utr_ire_geneExpression"))
+export::graph2ppt(pca_q96_ires_plot, here("R/DE/fig/pca_q96_ires_plot"))
+export::graph2pdf(pca_q96_ires_plot, here("R/DE/fig/pca_q96_ires_plot"))
+```
+
+- PCA on Q96K97 data, restricted to **5' IRE genes** doesn't show as clear separation, although the samples still do separate by age and possibly oxygen level. However, expression of 5' IRE genes doesn't seem to separate samples based on genotype as much as with **3' IRE genes**. 
+
+```{r}
+q96_expressedIREs2 <- q96_dge %>% cpm(log=TRUE) %>%
+  as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>%
+  dplyr::filter(ensembl_gene_id %in% ireGenes$ire5_all) %>%
+  column_to_rownames("ensembl_gene_id") %>%
+  as.matrix
+
+pca_q96_ires2 <- q96_expressedIREs2 %>% t %>% prcomp
+
+pca_q96_ires_plot2 <- pca_q96_ires2$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  as.data.frame %>%
+  rownames_to_column("samples") %>%
+  left_join((q96_dge$samples %>% rownames_to_column("samples")), by="samples") %>%
+  ggplot(aes(x=PC1, y = PC2, colour = Hypoxia, shape = paste0(Genotype, "_", Age))) +
+  geom_point(alpha = 0.7,size=3) + 
+  scale_shape_manual(values = c(0,1,15,16),
+                     labels = c("Q96K97/+, 24 months", "Q96K97/+, 6 months", "+/+, 24 months", "+/+, 6 months")) +
+  theme(aspect.ratio = 1) +
+  scale_colour_manual(values = c("cornflowerblue", "red"), labels = c("Normoxia", "Hypoxia")) +
+    labs(x = "Principal Component 1 (31.67%)", y = "Principal Component 2 (11.35%)", 
+         colour = "Oxygen Level", shape = "Genotype and Age")
+
+summary(pca_q96_ires2)
+screeplot(pca_q96_ires2)
+pca_q96_ires_plot2
+
+export::graph2ppt(pca_q96_ires_plot2, here("R/DE/fig/pca_q96_ires_plot_5utr"))
+export::graph2pdf(pca_q96_ires_plot2, here("R/DE/fig/pca_q96_ires_plot_5utr"))
+```
+
+### 3.2. K97fs data
+
+- PCA on K97fs data, restricted to 3' IRE genes
+
+```{r}
+k97_expressedIREs <- k97_dge %>% cpm(log=TRUE) %>%
+  as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>%
+  dplyr::filter(ensembl_gene_id %in% ireGenes$ire3_all) %>%
+  column_to_rownames("ensembl_gene_id") %>%
+  as.matrix
+
+pca_k97_ires <- k97_expressedIREs %>% t %>% prcomp
+
+pca_k97_ires_plot <- pca_k97_ires$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  as.data.frame %>%
+  rownames_to_column("samples") %>%
+  left_join((k97_dge$samples %>% rownames_to_column("samples")), by="samples") %>%
+  ggplot(aes(x=PC1, y = PC2, shape = paste0(psen1, "_", months))) +
+  geom_point(alpha = 0.7,size=3, colour = "cornflowerblue") + 
+  scale_shape_manual(values = c(0,1,15,16),
+                     labels =c("K97fs/+, 24 months", "K97fs/+, 6 months", "+/+, 24 months", "+/+, 6 months")) +
+  theme(aspect.ratio = 1) +
+  #scale_colour_manual(values = c("red","cornflowerblue"), labels = c("Hypoxia","Normoxia")) +
+    labs(x = "Principal Component 1 (27.65%)", y = "Principal Component 2 (15.06%)", 
+         shape = "Genotype and Age")
+
+
+summary(pca_k97_ires)
+screeplot(pca_k97_ires)
+pca_k97_ires_plot
+
+export::graph2ppt(pca_k97_ires_plot, here("R/DE/fig/pca_k97_ires_plot"))
+export::graph2pdf(pca_k97_ires_plot, here("R/DE/fig/pca_k97_ires_plot"))
+```
+
+- PCA on K97fs data, restricted to 5' IRE genes
+
+```{r}
+k97_expressedIREs2 <- k97_dge %>% cpm(log=TRUE) %>%
+  as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>%
+  dplyr::filter(ensembl_gene_id %in% ireGenes$ire5_all) %>%
+  column_to_rownames("ensembl_gene_id") %>%
+  as.matrix
+
+pca_k97_ires2 <- k97_expressedIREs2 %>% t %>% prcomp
+
+pca_k97_ires_plot2 <- pca_k97_ires2$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  as.data.frame %>%
+  rownames_to_column("samples") %>%
+  left_join((k97_dge$samples %>% rownames_to_column("samples")), by="samples") %>%
+  ggplot(aes(x=PC1, y = PC2, shape = paste0(psen1, "_", months))) +
+  geom_point(alpha = 0.7,size=3, colour = "cornflowerblue") + 
+  scale_shape_manual(values = c(0,1,15,16),
+                     labels =c("K97fs/+, 24 months", "K97fs/+, 6 months", "+/+, 24 months", "+/+, 6 months")) +
+  theme(aspect.ratio = 1) +
+  #scale_colour_manual(values = c("red","cornflowerblue"), labels = c("Hypoxia","Normoxia")) +
+    labs(x = "Principal Component 1 (26.17%)", y = "Principal Component 2 (22.03%)", 
+         shape = "Genotype and Age")
+
+
+summary(pca_k97_ires2)
+screeplot(pca_k97_ires2)
+pca_k97_ires_plot2
+
+export::graph2ppt(pca_k97_ires_plot2, here("R/DE/fig/pca_k97_ires_plot2"))
+export::graph2pdf(pca_k97_ires_plot2, here("R/DE/fig/pca_k97_ires_plot2"))
+
+```
+
+## 4. t-statistic PCA
+
+- Here we create a PCA of t-statistics from the *limma-voom* DE gene analysis to compare the similarity/differences between DE gene patterns in different comparisons. 
+
+```{r}
+write_fit_g <- readRDS(here("R/DE/data/write_fit_g.rds"))
+
+t_pca <- write_fit_g %>% dplyr::select(starts_with("t.")) %>% as.matrix %>% t %>% prcomp
+
+summary(t_pca) # PC1: 34.6%, PC2: 28.7%
+
+t_pca_plot <- t_pca$x[, c("PC1","PC2")] %>%
+  as.data.frame %>%
+  rownames_to_column("comparison") %>%
+  mutate(comparison = gsub(x = comparison, pattern = "^t.", replacement = "")) %>%
+  ggplot(aes(x = PC1, y = PC2, colour = comparison, label = comparison)) +
+  geom_point(alpha=0.7, size = 3)+
+  geom_text_repel(size=2) + 
+  theme(aspect.ratio = 1)+
+  theme_bw() +
+  scale_colour_manual(values = c(rep("magenta", 2), rep("blue", 2), rep("red",2), 
+                                 rep("magenta", 2), rep("blue", 2), rep("red",2))) +
+  labs(x = "Principal Component 1 (34.6%)", y = "Principal Component 2 (28.7%)", colour = "t-statistics")
+
+t_pca_plot
+
+export::graph2ppt(t_pca_plot, here("R/DE/fig/t_pca_plot"))
+```
+

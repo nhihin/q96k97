@@ -14,6 +14,7 @@ library(here)
 library(readr)
 library(tibble)
 library(grid)
+library(export)
 library(reshape2)
 
 # ggplot2 theme
@@ -174,6 +175,7 @@ dge <- DGEList(counts = counts_for_dge,
 dge
 
 #saveRDS(dge, here("R","DE","data","dge_g.rds"))
+dge <- readRDS(here("R","DE","data","dge_g.rds"))
 ```
 
 - The DGEList for transcript-level counts was created as follows:
@@ -197,6 +199,7 @@ dge_t <- DGEList(counts = counts_for_dge_t,
 dge_t
 
 # saveRDS(dge_t, here("R","DE","data","dge_t.rds"))
+dge_t <- readRDS(here("R","DE","data","dge_t.rds"))
 ```
 
 
@@ -209,20 +212,24 @@ We will use Principal Component Analysis to get an idea of the similarity of sam
 ```{r}
 pca_analysis1 <- prcomp(t(cpm(dge, log=TRUE)))
 
-summary(pca_analysis1)
-
-pca_analysis1$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+pca_geneExpression <- pca_analysis1$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
   as.data.frame %>%
   rownames_to_column("samples") %>%
   left_join((dge$samples %>% rownames_to_column("samples")), by="samples") %>%
-    ggplot(aes(x=PC1, y = PC2, colour = Group, shape = Group)) +
-    geom_point(alpha = 0.7,size=3) + 
-    scale_shape_manual(values = c(15,15,16,16,12,12,10,10)) +
-    theme(aspect.ratio = 1) +
-    #scale_color_brewer(palette ="Paired") +
-    scale_color_manual(values = c("red", "magenta", "red", "magenta", "blue", "turquoise", "blue", "turquoise"))+
+  ggplot(aes(x=PC1, y = PC2, colour = Hypoxia, shape = paste0(Genotype, "_", Age))) +
+  geom_point(alpha = 0.7,size=3) + 
+  scale_shape_manual(values = c(0,1,15,16),
+                     labels = c("Q96K97/+, 24 months", "Q96K97/+, 6 months", "+/+, 24 months", "+/+, 6 months")) +
+  theme(aspect.ratio = 1) +
+  scale_colour_manual(values = c("red","cornflowerblue"), labels = c("Hypoxia","Normoxia")) +
     labs(x = "Principal Component 1 (19.15%)", y = "Principal Component 2 (6.0%)", 
-         colour = "Group", shape = "Group")
+         colour = "Oxygen Level", shape = "Genotype and Age")
+
+summary(pca_analysis1)
+screeplot(pca_analysis1)
+pca_geneExpression
+
+# export::graph2ppt(pca_geneExpression, file = here("R","DE","fig","pca_geneExpression"))
 ```
 
 ### 3.2. Transcript level PCA:
@@ -232,18 +239,24 @@ pca_analysis2 <- prcomp(t(cpm(dge_t, log=TRUE)))
 
 summary(pca_analysis2)
 
-pca_analysis2$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+pca_geneExpression2 <- pca_analysis2$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
   as.data.frame %>%
   rownames_to_column("samples") %>%
   left_join((dge$samples %>% rownames_to_column("samples")), by="samples") %>%
-    ggplot(aes(x=PC1, y = PC2, colour = Group, shape = Group)) +
-    geom_point(alpha = 0.7,size=3) + 
-    scale_shape_manual(values = c(15,15,16,16,12,12,10,10)) +
-    theme(aspect.ratio = 1) +
-    #scale_color_brewer(palette ="Paired") +
-    scale_color_manual(values = c("red", "magenta", "red", "magenta", "blue", "turquoise", "blue", "turquoise"))+
+  ggplot(aes(x=PC1, y = PC2, colour = Hypoxia, shape = paste0(Genotype, "_", Age))) +
+  geom_point(alpha = 0.7,size=3) + 
+  scale_shape_manual(values = c(0,1,15,16),
+                     labels = c("Q96K97/+, 24 months", "Q96K97/+, 6 months", "+/+, 24 months", "+/+, 6 months")) +
+  theme(aspect.ratio = 1) +
+  scale_colour_manual(values = c("red","cornflowerblue"), labels = c("Hypoxia","Normoxia")) +
     labs(x = "Principal Component 1 (9.4%)", y = "Principal Component 2 (7.8%)", 
-         colour = "Group", shape = "Group")
+         colour = "Oxygen Level", shape = "Genotype and Age")
+
+summary(pca_analysis2)
+screeplot(pca_analysis2)
+pca_geneExpression2
+
+
 ```
 
 ## 4. Filtering
