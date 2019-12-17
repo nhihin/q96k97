@@ -1,0 +1,107 @@
+---
+title: "HRE Peaks"
+output: html_notebook
+---
+
+```{r}
+library(rtracklayer)
+library(here)
+library(BSgenome.Drerio.UCSC.danRer11)
+```
+
+## 1. Determine overlaps
+
+- *vhl* ChIP sequencing peaks filtered for presence of a HRE. Filtering performed using MACS. ([BED 70 kb](https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-015-2169-x#Sec31)) containing HREs. 
+
+```{r}
+hrePeaks <- here::here("R/IREGenes/data/12864_2015_2169_MOESM5_ESM.bed") %>% 
+  rtracklayer::import()
+```
+
+- Annotation from reference zebrafish genome assembly 
+
+```{r}
+ah <- AnnotationHub()
+z11 <- BSgenome.Drerio.UCSC.danRer11
+
+# UCSC genomic ranges
+query(ah, c("Danio","release-94"))
+gr <- ah[["AH64578"]]
+ucscLevels <- seqlevels(z11)
+ensLevels <- ucscLevels %>%
+	str_remove_all("^chr") %>%
+	str_remove_all("^[0-9Un]+_") %>%
+	str_remove_all("_alt") %>%
+	str_replace_all("v", ".") %>%
+	str_replace_all("^M$", "MT")
+ens2Ucsc <- structure(ucscLevels, names = ensLevels)
+seqlevels(gr) <- ens2Ucsc[seqlevels(gr)]
+seqinfo(gr, new2old = match(seqlevels(z11), seqlevels(gr))) <- seqinfo(z11)
+```
+
+- Overlap them in order to get the annotations for HRE-containing ranges. 
+
+```{r}
+overlaps <- subsetByOverlaps(gr, hrePeaks)
+
+overlaps_df <- as.data.frame(overlaps) %>% filter(type == "gene")
+
+overlaps_df[,1:14]%>% as_tibble() %>% write_csv(here::here("R/IREGenes/results/hreGenes.csv"))
+```
+
+
+## 2. Import in gene sets
+
+```{r}
+zebrafishIreGenes <- readRDS(here::here("R/GSEA/data/ireGenes.rds"))
+zebrafishIreGenes %>% lapply(length)
+```
+
+- Subtract the HRE genes from zebrafish IRE gene sets.
+
+```{r}
+ire_without_hre <- lapply(zebrafishIreGenes, function(x){
+  x[!(x %in% overlaps_df$gene_id)]
+})
+ire_without_hre%>%lapply(length)
+
+
+
+```
+
+
+## 3. Gene set enrichment analysis
+
+### 2.1. Import in relevant data
+
+- We import in the `voom` object as well as `design` and `contrasts` matrices from the zebrafish DE analysis. 
+
+```{r}
+v <- readRDS(here::here("R","DE","data","voomData_g.rds"))  # Voom object
+design <- readRDS(here::here("R","DE","data","design_g.rds"))  # Design matrix
+contrasts <- readRDS(here::here("R","DE","data","contrasts_g.rds"))  # Contrasts matrix
+```
+
+### 2.2. Indexing
+
+- The indexes for the IRE gene sets without HIF binding sites were made.
+
+```{r}
+idx_ire_without_hre <- ire_without_hre %>% lapply(function(x){
+  x %>% ids2indices(identifiers = rownames(v)) %>% .[[1]]
+})
+
+idx_ire_without_hre
+```
+
+### 2.3. Running GSEA
+
+```{r}
+source(here("R","GSEA","combinedGSEA.R"))
+```
+
+```{r}
+gseaResults_hre_without_ire <- combinedGSEA(v, idx_ire_without_hre, design, contrasts)
+gseaResults_hre_without_ire <- readRDS(here::here("R/IREGenes/data/gseaResults_hre_without_ire.rds"))
+gseaResults_hre_without_ire$combTest
+```

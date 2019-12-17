@@ -1,0 +1,327 @@
+---
+title: "HRE Analysis"
+output: html_notebook
+---
+
+```{r Setup, include=FALSE}
+# Data Import and Manipulation
+library(tibble)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(stringr)
+
+# Analysis
+library(Biostrings)
+library(BSgenome.Drerio.UCSC.danRer11) 
+library(GenomicRanges)
+library(AnnotationHub)
+```
+
+## 0. Summary
+
+- Aims of this analysis are to:
+  - Define sets of genes containing HRE motifs.
+  - Filter these genes out of the IRE gene sets (try zebrafish first)
+  - See if the IRE enrichment results are still detected despite the gene sets not containing HRE genes. 
+
+## 1. Identifying genes with Hypoxia Responsive Elements
+
+### 1.1. Introduction
+
+- **Motivation**: The enrichment of IRE gene sets in both the zebrafish and human datasets show positive enrichment for 3' and 5' IRE-containing genes. One of the reasons for this is that at the moment, we aren't distinguishing between genes with IREs that respond to hypoxia vs. genes with IREs that respond to iron deficiency. Hypoxia-responsive genes are likely to be up/down whereas genes with IREs responding to iron deficiency we would expect to be up. 
+- **Aim**: The aim of this analysis is to distinguish between genes regulated by hypoxia from the IRE-containing genes. 
+- **Hypoxia responsive elements** are motifs which HIF1 binds to. These genes are responsive to hypoxia. 
+- **Plan**: Search through the zebrafish genome for all instances of the HRE motif, and then relate these sequences to genes. 
+
+### 1.2. Motifs
+
+#### 1.2.1. Relevant motifs in a HRE
+
+- HREs can be computationally predicted by using the HBS sequence **[5'-RCGTG-3']** where HIF1 binds, along with adjacent HAS (Hypoxia Ancillary Sequence) consensus **[5'-CA(G|C)(A|G)(T|G|C)-3']** located 7-15nt downstream. 
+- This method was used in  [HRGFish](http://mail.nbfgr.res.in/cgi-bin/HRGFish/hreanalysis.pl), a database that uses a perl script to define genes responsive to hypoxia. Unfortunately, their database only includes ~50 zebrafish genes that have been experimentally verified so it's not super useful for us considering we're dealing with ~3,000 genes with predicted IREs that we need to narrow down. 
+- The HBS and HAS sequences form an imperfect inverted repeat. Many different proteins can bind to the HAS, but HIF1 binds to the HBS during hypoxia or NO-induced activation. 
+
+#### 1.2.2. Import HBS and HAS motifs
+
+- The [HBS](http://jaspar.genereg.net/matrix/MA1106.1/) motif was downloaded in the **Jaspar** database by searching for "HIF1a" and imported as below
+
+```{r}
+hif1aMotif <- read_table(here::here("R/IREGenes/data/MA1106.1.pfm"), skip = 1, col_names = FALSE) %>%
+  as.matrix %>% 
+  set_colnames(NULL) %>%
+  set_rownames(c("A","C","G","T"))
+
+hif1aMotif
+```
+
+- The [HAS](http://jaspar.genereg.net/matrix/MA0004.1/) motif was downloaded in the **Jaspar** database by searching for "HIF1b" (which is also known as Arnt) and imported as below. 
+
+```{r}
+hif1bMotif <- read_table(here::here("R/IREGenes/data/MA0004.1.pfm"), skip = 1, col_names = FALSE) %>%
+  as.matrix %>%
+  set_colnames(NULL) %>%
+  set_rownames(c("A","C","G","T")) 
+
+hif1bMotif
+```
+
+
+- **Jaspar** database has a motif corresponding to the [HIF1a-HIF1b dimer](http://jaspar.genereg.net/matrix/MA0259.1.pfm/), which we will also import in.
+
+```{r}
+hif1abMotif <- read_table(here::here("R/IREGenes/data/MA0259.1.pfm"), skip = 1, 
+                          col_names = FALSE) %>%
+  as.matrix %>%
+  set_colnames(NULL) %>%
+  set_rownames(c("A","C","G","T"))
+
+hif1abMotif
+```
+
+### 1.3. Matching motifs to GRanges
+
+- We will now search through the zebrafish genome assembly in the BSGenome object for the HIF motifs.
+- We will allow 90% match to indicate that gene has the motif.
+- 90% match is suitable because the GRE motif is not exactly a particular base at each position, eg. the first base can either be an A or G plausibly.
+
+```{r}
+matchedGranges <- list(
+  hif1a = matchPWM(hif1aMotif, BSgenome.Drerio.UCSC.danRer11, "90%"),
+  hif1b = matchPWM(hif1bMotif, BSgenome.Drerio.UCSC.danRer11, "90%"),
+  hif1ab = matchPWM(hif1abMotif, BSgenome.Drerio.UCSC.danRer11, "90%")
+)
+
+matchedGranges$hif1ab %>% head
+
+# saveRDS(matchedGranges, here::here("R/IREGenes/data/matchedGranges.rds"))
+```
+
+### 1.4. Promoter Regions from Reference Genome Assembly
+
+- The next step is to retrieve promoter regions from the Ensembl zebrafish genome assembly (GRCz11, Release 94).
+- Promoter regions were defined as 1,500 bp upstream of the TSS to 500 bp after the TSS. 
+- Ensembl `seqlevels` to UCSC format in the `z11` BSgenome object to be consistent with the GenomicRanges object in `gr`. 
+
+```{r}
+# # Ensembl
+# ah %>%
+#   subset(grepl("rerio", species)) %>%
+#   subset(rdataclass == "EnsDb")
+# ensDb <- ah[["AH64906"]]
+# genes <- genes(ensDb)
+# transcripts <- transcripts(ensDb)
+# newSeqnames <- mapSeqlevels(seqlevels(promoters),"UCSC")
+# promoters_ucsc <- renameSeqlevels(promoters, newSeqnames)
+```
+
+```{r}
+ah <- AnnotationHub()
+z11 <- BSgenome.Drerio.UCSC.danRer11
+
+# UCSC genomic ranges
+query(ah, c("Danio","release-94"))
+gr <- ah[["AH64578"]]
+ucscLevels <- seqlevels(z11)
+ensLevels <- ucscLevels %>%
+	str_remove_all("^chr") %>%
+	str_remove_all("^[0-9Un]+_") %>%
+	str_remove_all("_alt") %>%
+	str_replace_all("v", ".") %>%
+	str_replace_all("^M$", "MT")
+ens2Ucsc <- structure(ucscLevels, names = ensLevels)
+seqlevels(gr) <- ens2Ucsc[seqlevels(gr)]
+seqinfo(gr, new2old = match(seqlevels(z11), seqlevels(gr))) <- seqinfo(z11)
+
+promoters <- promoters(gr, upstream = 1500, downstream = 500)
+```
+
+### 1.5. Overlap between promoters and HIF binding sites
+
+- The overlaps in regions between the reference zebrafish promoters and HIF1a, HIF1b, and HIF1ab binding sites were found.
+
+```{r}
+promotersWithMotif <- lapply(matchedGranges, function(x){
+  subsetByOverlaps(promoters, x)
+})
+
+promotersWithMotif_genes <- lapply(promotersWithMotif, function(x){
+  x %>% as.data.frame %>% distinct(gene_id, .keep_all=TRUE)
+})
+
+lapply(promotersWithMotif_genes, dim)
+
+common <- full_join(promotersWithMotif_genes$hif1a, promotersWithMotif_genes$hif1b) %>%
+  full_join(promotersWithMotif_genes$hif1ab)
+dim(common)
+
+# # Get all of the promoters which contain the GRE motif
+# promotersWithMotif_hif1a <- subsetByOverlaps(promoters, matchedGranges$hif1a)
+# promotersWithMotif_hif1b <- subsetByOverlaps(promoters, matchedGranges$hif1b)
+# promotersWithMotif_hif1ab <- subsetByOverlaps(promoters, matchedGranges$hif1ab)
+
+promotersWithMotif_genes %>%
+```
+
+### 1.6. Genes with HREs and IREs
+
+- Import in the zebrafish and human IRE gene sets previously defined:
+
+```{r}
+zebrafishIreGenes <- readRDS(here::here("R/GSEA/data/ireGenes.rds"))
+humanIreGenes <- readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
+
+lapply(zebrafishIreGenes, length)
+```
+
+- Define the IRE gene sets which DO NOT contain genes identified to have HIF1a or HIF1ab binding sites. 
+
+```{r}
+# Filter the HRE-containing genes for ones that also contain IREs
+genesWithIresAndHres <- promotersWithMotif_genes %>% lapply(
+  function(x){
+    x %>%
+      dplyr::filter(gene_id %in% zebrafishIreGenes$ire3_all)
+  }
+)
+
+# Create a new gene set which only has IRE-containing genes WITHOUT HIF1a HREs.
+zebrafishIreGenesWithoutHre_a <- list(
+  ire3_all = zebrafishIreGenes$ire3_all[!(zebrafishIreGenes$ire3_all %in% genesWithIresAndHres$hif1a$gene_id)],
+  ire5_all = zebrafishIreGenes$ire5_all[!(zebrafishIreGenes$ire5_all %in% genesWithIresAndHres$hif1a$gene_id)],
+  ire3_hq = zebrafishIreGenes$ire3_hq[!(zebrafishIreGenes$ire3_hq %in% genesWithIresAndHres$hif1a$gene_id)],
+  ire5_hq = zebrafishIreGenes$ire5_hq[!(zebrafishIreGenes$ire5_hq %in% genesWithIresAndHres$hif1a$gene_id)]
+)
+
+# Create a new gene set which only has IRE-containing genes WITHOUT HIF1b HREs.
+zebrafishIreGenesWithoutHre_b <- list(
+  ire3_all = zebrafishIreGenes$ire3_all[!(zebrafishIreGenes$ire3_all %in% genesWithIresAndHres$hif1b$gene_id)],
+  ire5_all = zebrafishIreGenes$ire5_all[!(zebrafishIreGenes$ire5_all %in% genesWithIresAndHres$hif1b$gene_id)],
+  ire3_hq = zebrafishIreGenes$ire3_hq[!(zebrafishIreGenes$ire3_hq %in% genesWithIresAndHres$hif1b$gene_id)],
+  ire5_hq = zebrafishIreGenes$ire5_hq[!(zebrafishIreGenes$ire5_hq %in% genesWithIresAndHres$hif1b$gene_id)]
+)
+
+# Create a new gene set which only has IRE-containing genes WITHOUT HIF1ab HREs.
+zebrafishIreGenesWithoutHre_ab <- list(
+  ire3_all = zebrafishIreGenes$ire3_all[!(zebrafishIreGenes$ire3_all %in% genesWithIresAndHres$hif1ab$gene_id)],
+  ire5_all = zebrafishIreGenes$ire5_all[!(zebrafishIreGenes$ire5_all %in% genesWithIresAndHres$hif1ab$gene_id)],
+  ire3_hq = zebrafishIreGenes$ire3_hq[!(zebrafishIreGenes$ire3_hq %in% genesWithIresAndHres$hif1ab$gene_id)],
+  ire5_hq = zebrafishIreGenes$ire5_hq[!(zebrafishIreGenes$ire5_hq %in% genesWithIresAndHres$hif1ab$gene_id)]
+)
+
+zebrafishIreGenesWithoutHre_all <- list(
+  ire3_all = zebrafishIreGenes$ire3_all[!(zebrafishIreGenes$ire3_all %in% common$gene_id)],
+  ire5_all = zebrafishIreGenes$ire5_all[!(zebrafishIreGenes$ire5_all %in% common$gene_id)],
+  ire3_hq = zebrafishIreGenes$ire3_hq[!(zebrafishIreGenes$ire3_hq %in% common$gene_id)],
+  ire5_hq = zebrafishIreGenes$ire5_hq[!(zebrafishIreGenes$ire5_hq %in% common$gene_id)]
+)
+
+hif_filtered_gs <- list(
+  zebrafishIreGenesWithoutHre_a = zebrafishIreGenesWithoutHre_a, 
+  zebrafishIreGenesWithoutHre_b = zebrafishIreGenesWithoutHre_b,
+  zebrafishIreGenesWithoutHre_ab = zebrafishIreGenesWithoutHre_ab,
+  zebrafishIreGenesWithoutHre_all = zebrafishIreGenesWithoutHre_all
+)
+saveRDS(hif_filtered_gs, here::here("R/IREGenes/data/hif_filtered_gs.rds"))
+
+print("HIF1a")
+zebrafishIreGenesWithoutHre_a %>% lapply(length)
+print("HIF1b")
+zebrafishIreGenesWithoutHre_b %>% lapply(length)
+print("Both")
+zebrafishIreGenesWithoutHre_ab %>% lapply(length)
+print("All")
+zebrafishIreGenesWithoutHre_all %>% lapply(length)
+```
+
+- Make a comparison table to show how much the gene numbers have changed. 
+```{r}
+ire3_genesets <- data.frame(
+  all_ire3 = lapply(zebrafishIreGenes, length) %>% as.numeric,
+  all_ire3_noHIF1a = lapply(zebrafishIreGenesWithoutHre_a, length) %>% as.numeric,
+  all_ire3_noHIF1b = lapply(zebrafishIreGenesWithoutHre_b, length) %>% as.numeric,
+  all_ire3_noHIF1ab = lapply(zebrafishIreGenesWithoutHre_ab, length) %>% as.numeric,
+  all_ire3_noAll = lapply(zebrafishIreGenesWithoutHre_all, length) %>% as.numeric
+) %>%
+  set_rownames(c("ire3_all","ire5_all","ire3_hq","ire5_hq"))
+
+ire3_genesets
+```
+
+
+- Notably, after filtering out genes with HIF1a, HIF1a, or HIF1ab binding sites, the number of genes with IREs in their 3' UTR are massively decreased.
+
+## 2. Gene set enrichment analysis
+
+### 2.1. Import in relevant data
+
+- We import in the `voom` object as well as `design` and `contrasts` matrices from the zebrafish DE analysis. 
+
+```{r}
+v <- readRDS(here::here("R","DE","data","voomData_g.rds"))  # Voom object
+design <- readRDS(here::here("R","DE","data","design_g.rds"))  # Design matrix
+contrasts <- readRDS(here::here("R","DE","data","contrasts_g.rds"))  # Contrasts matrix
+```
+
+### 2.2. Indexing
+
+- The indexes for the IRE gene sets without HIF binding sites were made.
+
+```{r}
+idx_a <- hif_filtered_gs$zebrafishIreGenesWithoutHre_a %>% lapply(function(x){
+  x %>% ids2indices(identifiers = rownames(v)) %>% .[[1]]
+})
+
+idx_b <- hif_filtered_gs$zebrafishIreGenesWithoutHre_b %>% lapply(function(x){
+  x %>% ids2indices(identifiers = rownames(v))%>% .[[1]]
+})
+
+idx_ab <- hif_filtered_gs$zebrafishIreGenesWithoutHre_ab %>% lapply(function(x){
+  x %>% ids2indices(identifiers = rownames(v))%>% .[[1]]
+})
+
+idx_all = hif_filtered_gs$zebrafishIreGenesWithoutHre_all %>% lapply(function(x){
+  x %>% ids2indices(identifiers = rownames(v))%>% .[[1]]
+})
+
+idx_a
+```
+
+### 2.3. Running GSEA
+
+```{r}
+source(here("R","GSEA","combinedGSEA.R"))
+```
+
+```{r}
+gseaResults_a <- combinedGSEA(v, idx_a, design, contrasts)
+gseaResults_b <- combinedGSEA(v, idx_b, design, contrasts)
+gseaResults_ab <- combinedGSEA(v, idx_ab, design, contrasts)
+gseaResults_all <- combinedGSEA(v, idx_all, design, contrasts)
+```
+
+```{r}
+saveRDS(gseaResults_a, here::here("R/IREGenes/data/gseaResults_a.rds"))
+saveRDS(gseaResults_b, here::here("R/IREGenes/data/gseaResults_b.rds"))
+saveRDS(gseaResults_ab, here::here("R/IREGenes/data/gseaResults_ab.rds"))
+saveRDS(gseaResults_all, here::here("R/IREGenes/data/gseaResults_all.rds"))
+```
+
+```{r}
+gseaResults_all$combTest
+
+
+saveRDS(gseaResults_all, here::here("R/IREGenes/data/gseaResults_all.rds"))
+
+gseaResults_a <- readRDS(here::here("R/IREGenes/data/gseaResults_a.rds"))
+
+```
+
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
+
+
