@@ -1,0 +1,924 @@
+---
+title: "Human IRE Analysis"
+output: html_notebook
+---
+
+```{r setup, message=FALSE,warning=FALSE,include=FALSE}
+library(tidyverse)
+library(magrittr)
+library(tibble)
+library(readr)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(AnnotationHub)
+library(plyranges)
+library(fgsea)
+library(magrittr)
+library(scales)
+library(pander)
+library(here)
+```
+
+
+## 1. Defining human IRE gene sets
+
+### 1.1.  Introduction
+
+The aim of this analysis is to determine the predicted IREs from the human reference genome, and compare the properties of these to IREs predicted from the zebrafish genome. 
+
+### 1.2.  Extract UTR sequences from human reference genome
+
+Here we prepare the `hg38` reference genomic ranges with Ensembl IDs rather than the default UCSC IDs:
+
+```{r eval=FALSE}
+hg38 <- BSgenome.Hsapiens.UCSC.hg38
+ah <- AnnotationHub() %>% subset(species == "Homo sapiens")
+gr <- ah[["AH64629"]]
+
+#gr <- gr %>% subset(seqnames %in% c(as.character(1:24), "X", "Y", "MT")) %>% subset(type == "three_prime_utr")
+
+ucscLevels <- seqlevels(hg38)
+
+ensLevels <- ucscLevels %>%
+	str_remove_all("^chr") %>%
+	str_remove_all("^[0-9Un]+_") %>%
+	str_remove_all("_alt") %>%
+	str_replace_all("v", ".") %>%
+	str_replace_all("^M$", "MT")
+
+ens2Ucsc <- structure(ucscLevels, names = ensLevels)
+seqlevels(gr) <- ens2Ucsc[seqlevels(gr)]
+seqinfo(gr, new2old = match(seqlevels(hg38), seqlevels(gr))) <- seqinfo(hg38)
+
+```
+
+
+#### 1.2.1. Extract 3' UTRs
+
+Subset 3' UTR sequences:
+```{r eval=FALSE}
+utr3 <- subset(gr, type == "three_prime_utr")
+```
+
+Export 3' UTRs:
+```{r}
+utr3Seq <- Views(hg38, utr3) %>% DNAStringSet() 
+names(utr3Seq) <- paste(utr3$transcript_id, utr3$gene_name, granges(utr3), sep = "_")
+writeXStringSet(utr3Seq, here("R","IREGenes","data","utr3_human.fa.gz"), compress = TRUE)
+```
+A total of `r comma(length(utr3))` sequences were exported
+
+
+#### 1.2.2. Extract 5' UTRs
+
+Subset 5' UTR sequences:
+```{r utr5}
+utr5 <- gr%>% subset(type == "five_prime_utr")
+```
+
+Export 5' UTRs
+```{r exportutr5, eval=FALSE}
+utr5Seq <- Views(hg38, utr5) %>% DNAStringSet() 
+names(utr5Seq) <- paste(utr5$transcript_id, utr5$gene_name, granges(utr5), sep = "_")
+writeXStringSet(utr5Seq, here("R","IREGenes","data","utr5_human.fa.gz"), compress = TRUE)
+```
+A total of `r comma(length(utr5))` sequences were exported.
+
+
+### 1.3. Import SIREs results
+
+#### 1.3.1. 3' UTR
+
+Results from scans of the above sequences using the [SIREs website](http://ccbg.imppc.org/sires/) were loaded as data frames, with co-ordinates converted to the underlying genomic co-ordinates, as opposed to being in reference to the submitted sequences.
+
+```{r}
+ireUtr3 <- here::here("R","IREGenes","data","utr3_human.fa.gff") %>% 
+	import.gff() %>%
+	as.data.frame(stringsAsFactors = FALSE) %>%
+	as_tibble()
+```
+
+
+```{r utr3ToGRanges}
+ireUtr3 %<>%
+	mutate(seqnames = as.character(seqnames),
+				 seqnames = str_replace(seqnames, "_chrUn_", "_chrUn-")
+				 ) %>%
+	dplyr::select(-strand) %>%
+	separate(seqnames, c("transcript_id", "gene_name", "location"), sep = "_") %>%
+	mutate(location = str_replace(location, "chrUn-", "chrUn_")) %>%
+	separate(
+		location, 
+		into = c("seqnames", "trans_start", "trans_end", "strand"),
+		sep = "[:-]"
+	) %>%
+	mutate_at(c("trans_start", "trans_end"), funs(as.integer)) %>%
+	mutate(strand = case_when(
+		strand == "" ~ "-",
+		strand == "+" ~ "+"
+	),
+	start = ifelse(
+		strand == "+", 
+		trans_start + start - 1L,
+		trans_end - end + 1L
+	),
+	end = start + width - 1) %>%
+	dplyr::select(-contains("trans_")) %>%
+	makeGRangesFromDataFrame(
+		keep.extra.columns = TRUE, 
+		seqinfo = seqinfo(gr), 
+		seqnames.field = "seqnames", 
+		start.field = "start", 
+		end.field = "end", 
+		strand.field = "strand") 
+ireUtr3$gene_id <- mcols(gr)$gene_id[match(ireUtr3$transcript_id, gr$transcript_id)]
+```
+
+A total of `r comma(length(ireUtr3))` IREs were found across `r comma(length(unique(ireUtr3$gene_id)))` genes when inspecting the 3'UTR sequences.
+These can be summarised as:
+
+```{r summariseUtr3, echo=FALSE}
+ireUtr3 %>% 
+	mcols() %>% 
+	as.data.frame() %>% 
+	select(ends_with("class"), quality) %>% 
+	lapply(table) %>% 
+	pander()
+```
+
+#### 1.3.2. 5' UTR
+
+The same process was repeated for 5' UTR IREs, with the exception that this time the gene *TMCC1* required manual correcting.
+
+```{r importUtr5}
+ireUtr5 <- here::here("R","IREGenes","data","utr5_human.fa.gff") %>% 
+	import.gff() %>%
+	as.data.frame(stringsAsFactors = FALSE) %>%
+	as_tibble()
+```
+
+
+The loaded matches to IREs in the UTR5 were then converted to a GRanges object.
+
+```{r utr5ToGRanges}
+ireUtr5 %<>%
+	mutate(seqnames = as.character(seqnames),
+				 seqnames = str_replace(seqnames, "_chrUn_", "_chrUn-")) %>%
+	dplyr::select(-strand) %>%
+	separate(seqnames, c("transcript_id", "gene_name", "location"), sep = "_") %>%
+	mutate(location = str_replace(location, "chrUn-", "chrUn_")) %>%
+	separate(
+		location, 
+		into = c("seqnames", "trans_start", "trans_end", "strand"),
+		sep = "[:-]"
+	) %>%
+	mutate_at(c("trans_start", "trans_end"), funs(as.integer)) %>%
+	mutate(strand = case_when(
+		strand == "" ~ "-",
+		strand == "+" ~ "+"
+	),
+	start = ifelse(
+		strand == "+", 
+		trans_start + start - 1L,
+		trans_end - end + 1L
+	),
+	end = start + width - 1) %>%
+	dplyr::select(-contains("trans_")) %>%
+	makeGRangesFromDataFrame(
+		keep.extra.columns = TRUE, 
+		seqinfo = seqinfo(gr), 
+		seqnames.field = "seqnames", 
+		start.field = "start", 
+		end.field = "end", 
+		strand.field = "strand")
+ireUtr5$gene_id <- mcols(gr)$gene_id[match(ireUtr5$transcript_id, gr$transcript_id)]
+```
+
+A total of `r comma(length(ireUtr5))` IREs were found across `r comma(length(unique(ireUtr5$gene_id)))` genes when inspecting the 5'UTR sequences.
+These can be summarised as:
+
+```{r summariseUtr5, echo=FALSE}
+ireUtr5 %>% 
+	mcols() %>% 
+	as.data.frame() %>% 
+	select(ends_with("class"), quality) %>% 
+	lapply(table) %>% 
+	pander()
+```
+
+## 1.4. Enrichment Analysis
+
+### 1.4.1. Gene Set Definitions
+
+At this point, we need to create multiple (overlapping) gene sets which define the putative IREs.
+The initial gene-sets being formed are:
+
+- **3'UTR HQ**: The High quality IREs in the 3' UTR
+- **3'UTR ALL**: All putative IREs in the 3'UTR
+- **5'UTR HQ**: The High quality IREs in the 5' UTR
+- **5'UTR ALL**: All putative IREs in the 5'UTR
+
+```{r ireSets}
+ireSets <- list(
+	utr3HQ = ireUtr3 %>% 
+		subset(quality == "High") %>% 
+		mcols() %>% 
+		extract2("gene_name") %>% 
+		unique(),
+	utr3ALL = ireUtr3 %>% 
+		mcols() %>% 
+		extract2("gene_name") %>% 
+		unique(),
+	utr5HQ = ireUtr5 %>% 
+		subset(quality == "High") %>% 
+		mcols() %>% 
+		extract2("gene_name") %>% 
+		unique(),
+	utr5ALL = ireUtr5 %>% 
+		mcols() %>% 
+		extract2("gene_name") %>% 
+		unique()
+)
+```
+
+This gave gene sets of the following sizes:
+
+```{r setLengths, echo=FALSE}
+pander(sapply(ireSets, length))
+```
+
+```{r}
+# saveRDS(ireSets, here("R/IREGenes/data/human_ireSets.rds"))
+```
+
+## 2. Import human sAD dataset
+
+- In this analysis, we will be using the Mayo dataset. 
+
+### 2.1. Data Description
+
+- **Tissue**: Human cerebellum and temporal cortex
+- **Platform**: Illumina HiSeq 2000, 101 bp, paired end RNA-seq
+- **URL**: [Synapse](https://www.synapse.org/#!Synapse:syn5550404)
+- **Samples**: Post mortem AD cases (Braak >= 4.0), pathological diagnosis of PSP (Braak <= 3), pathologic aging (Braak <= 3), elderly control (Braak <= 3)
+- **Study Description**: This study is independent of studies described under the Mayo Clinic Alzheimer’s Disease Genetics Studies (MCADGS). Data is provided for the Mayo RNAseq Study, with whole transcriptome data for 275 Cerebellum (CBE) and 276 Temporal cortex (TCX) samples from 312 North American Caucasian subjects with neuropathological diagnosis of AD, progressive supranuclear palsy (PSP), pathologic aging (PA) or elderly controls (CON) without neurodegenerative diseases. Within this cohort, all AD and PSP subjects were from the Mayo Clinic Brain Bank (MCBB), and all PA subjects were obtained from the Banner Sun Health Research Institute (Banner). Thirty-four control CBE and 31 control TCX samples were from the MCBB, and the remaining control tissue was from Banner. All subjects selected from the MCBB and Banner underwent neuropathologic evaluation by Dr. Dennis Dickson or Dr. Thomas Beach, respectively. All ADs had definite diagnosis according to the NINCDS-ADRDA criteria and had Braak NFT stage of IV or greater. Control subjects had Braak NFT stage of III or less, CERAD neuritic and cortical plaque densities of 0 (none) or 1 (sparse) and lacked any of the following pathologic diagnoses: AD, Parkinson’s disease (PD), DLB, VaD, PSP, motor neuron disease (MND), CBD, Pick’s disease (PiD), Huntington’s disease (HD), FTLD, hippocampal sclerosis (HipScl) or dementia lacking distinctive histology (DLDH). Subjects with PA also lacked the above diagnoses and had Braak NFT stage of III or less, but had CERAD neuritic and cortical plaque densities of 2 or more. None of the PA subjects had a clinical diagnosis of dementia or mild cognitive impairment.
+
+### 2.2. Data Import and Pre-processing
+
+- First we wmport the gene counts and sample tables for the cerebellum (CBE) and temporal cortex (TCX) samples:
+
+```{r}
+data_mayo <- list(
+  counts_cbe = read_tsv(here("R/IREGenes/data", "mayo", "MayoRNAseq_RNAseq_CBE_geneCounts.tsv")),
+  counts_tcx = read_tsv(here("R/IREGenes/data", "mayo", "MayoRNAseq_RNAseq_TCX_geneCounts.tsv")),
+  samples_cbe = read_csv(here("R/IREGenes/data", "mayo", "MayoRNAseq_RNAseq_CBE_covariates.csv")),
+  samples_tcx = read_csv(here("R/IREGenes/data", "mayo", "MayoRNAseq_RNAseq_TCX_covariates.csv"))
+)
+
+# lapply(data_mayo, dim) # Slight disrepancy in the number of samples in counts and sample tables.
+
+# Filter to only include samples which are present in the counts matrices.
+data_mayo$samples_cbe %<>% 
+  filter(SampleID %in% colnames(data_mayo$counts_cbe), !is.na(Diagnosis)) %>%
+  mutate(Name = gsub(x = SampleID, pattern = "_CER", replacement = ""))
+
+data_mayo$samples_tcx %<>% 
+  filter(ID %in% colnames(data_mayo$counts_tcx), !is.na(Diagnosis)) %>%
+  dplyr::rename(SampleID = ID) %>%
+  mutate(Name = gsub(x = SampleID, pattern = "_TCX", replacement = ""))
+
+# Reorder the samples n the count matrices to be in the same order as the sample tables.
+data_mayo$counts_cbe %<>% magrittr::extract(, c("ensembl_id", data_mayo$samples_cbe$SampleID))
+data_mayo$counts_tcx %<>% magrittr::extract(, c("ensembl_id", data_mayo$samples_tcx$SampleID))
+
+# Remove genes that don't have counts measured in all samples in either the CBE or TCX datasets
+data_mayo$counts_cbe %<>% 
+  filter(complete.cases(.)) %>%
+  as.data.frame %>% 
+  column_to_rownames("ensembl_id")
+
+data_mayo$counts_tcx %<>% 
+  filter(complete.cases(.)) %>% 
+  as.data.frame %>% 
+  column_to_rownames("ensembl_id")
+
+lapply(data_mayo, dim) # Check dimensions. 
+
+# data_mayo$counts_cbe %>% mutate(rowSum = rowSums(.[-1])) %>% arrange(desc(rowSum))  %>% left_join(genes, by = c("ensembl_id"="ensembl_gene_id")) %>% head(100) %>% View
+```
+
+- Sample information:
+```{r}
+data_mayo$samples_cbe
+data_mayo$samples_tcx
+```
+
+- Merge the TCX and CBE datasets, retaining samples and genes that are present in both datasets: 
+```{r}
+data_mayo$samples_tcx %<>% dplyr::rename(Sex=Gender, Flowcell=FLOWCELL)
+
+keepSamples <- inner_join(data_mayo$samples_cbe, 
+                            data_mayo$samples_tcx, 
+                            by = c("Name", "Diagnosis", "Sex", "ApoE", "PMI", "AgeAtDeath"),
+                            suffix = c("_CBE", "_TCX"))
+
+mergedSamples <- rbind(data_mayo$samples_cbe, data_mayo$samples_tcx) %>%
+  filter(Name %in% keepSamples$Name) 
+
+mergedCounts <- inner_join(data_mayo$counts_cbe %>% rownames_to_column("ensembl_id"), 
+                           data_mayo$counts_tcx%>% rownames_to_column("ensembl_id"), 
+                           by = "ensembl_id") %>%
+  magrittr::extract(, c("ensembl_id", mergedSamples$SampleID)) %>%
+  column_to_rownames("ensembl_id") 
+
+mergedSamples # Preview the samples table
+mergedCounts # Preview the gene counts
+```
+
+### 2.3. Sample info
+
+- Number of individuals in this dataset for which we have both cerebellum and temporal cortex measurements:
+```{r}
+mergedSamples %>% dplyr::group_by(Tissue) %>% dplyr::summarise(n=dplyr::n())
+```
+
+Number of female (F) and male (M) individuals in the dataset:
+```{r}
+mergedSamples %>% dplyr::group_by(Sex) %>% dplyr::summarise(n=dplyr::n()) 
+```
+
+Age distribution of individuals is biased towards older individuals > 75 years old.
+```{r}
+mergedSamples2 <- mergedSamples %>% mutate(AgeAtDeath = as.numeric(gsub(x = AgeAtDeath, pattern = "90_or_above", replacement = 91)))
+
+paste0("Mean age: ", round(mean(mergedSamples2$AgeAtDeath),1))
+paste0("Median age: ", round(median(mergedSamples2$AgeAtDeath),1))
+paste0("Standard deviation of age: ", round(sd(mergedSamples2$AgeAtDeath),1))
+paste0("Median absolute deviation of age: ", round(mad(mergedSamples2$AgeAtDeath),1))
+
+mergedSamples %>%
+  mutate(AgeAtDeath = as.numeric(gsub(x = AgeAtDeath, pattern = "90_or_above", replacement = 90)) ) %>% 
+  use_series("AgeAtDeath") %>% 
+  hist(main="Age Distribution", breaks=30)
+
+```
+
+Are age distributions equally represented in each gender?
+```{r}
+mergedSamples2 %>% dplyr::group_by(AgeAtDeath, Sex) %>% dplyr::summarise(n=dplyr::n()) 
+
+mergedSamples2 %>% dplyr::group_by(Diagnosis) %>% dplyr::summarise(n = dplyr::n(), 
+                                                             mean = base::mean(AgeAtDeath),
+                                                             sd = sd(AgeAtDeath))
+
+mergedSamples2 %>% 
+  dplyr::group_by(Sex) %>% 
+  dplyr::summarise(mean=mean(AgeAtDeath),
+                   median=median(AgeAtDeath),
+                   sd = sd(AgeAtDeath),
+                   mad = mad(AgeAtDeath)) 
+```
+
+Number of individuals with each diagnosis. The pathologic aging group has significantly fewer individuals (n=44). The number of males and females in each group is not equal, but not too different that it should bias the results. 
+```{r}
+mergedSamples2 %>% dplyr::group_by(Diagnosis, Sex) %>% dplyr::summarise(n=dplyr::n())
+```
+
+Most individuals have the 3/3 ApoE genotype or the 3/4 ApoE genotype. However, some individuals have other ones too.
+```{r}
+mergedSamples2 %>% dplyr::group_by(ApoE) %>% dplyr::summarise(n=dplyr::n())
+```
+
+### 2.4. Principal Component Analysis
+
+Principal component analysis of the combined TCX and CBE samples:
+
+- **Tissue** (cerebellum or temporal cortex) contributes to the largest source of variation in the gene expression profiles. However, there are three outliers which cluster with the opposite tissue (?)
+- **ApoE** genotype does have an affect on gene expression, although this is much less than tissue. 
+- **Diagnosis** appears to have a minor effect on gene expression. 
+- **Sex** and **Source** (laboratory) do not have a major effect on gene expression. 
+
+```{r}
+humanIreGenes <- readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
+utr3_iregenes <- mergedCounts %>% cpm(log = TRUE) %>% as.data.frame %>% rownames_to_column("ensembl_id") %>%
+  dplyr::filter(ensembl_id %in% humanIreGenes$ire3_all) %>% column_to_rownames("ensembl_id")
+utr3_iregenes %<>% dplyr::select(-`1923_TCX`) # Remove outlier sample
+
+utr3_iregenes_pca <- utr3_iregenes %>% t %>% prcomp
+
+utr3_iregenes_pca_plot <- utr3_iregenes_pca$x %>% magrittr::extract(, c("PC1", "PC2"))%>%
+  as.data.frame() %>%
+  set_colnames(c("PCa", "PCb")) %>%
+  rownames_to_column("SampleID")  %>%
+  left_join(mergedSamples, by = "SampleID") %>%
+  dplyr::filter(Tissue == "TemporalCortex",
+                Diagnosis != "Pathologic Aging",
+                Diagnosis != "PSP") %>%
+  ggplot(aes(x = PCa, y = PCb, colour = Diagnosis)) +
+  geom_point(alpha = 0.7, size=3) +
+  theme(aspect.ratio = 1) + 
+  labs(x = "Principal Component 1 (56.1%)", y = "Principal Component 2 (10.1%)") +
+  theme_bw() 
+utr3_iregenes_pca_plot
+
+```
+
+```{r}
+
+test <- Rtsne(t(utr3_iregenes), dims = 2, perplexity = 9)
+mergedSamples %<>% dplyr::filter(!SampleID == "1923_TCX")
+
+
+
+human_tsne <- test$Y %>% as.data.frame() %>%
+  set_colnames(c("PC1", "PC2")) %>%
+  set_rownames(mergedSamples$SampleID) %>%
+  rownames_to_column("SampleID") %>% 
+  left_join(mergedSamples, by = "SampleID") %>% 
+  dplyr::filter(Tissue == "TemporalCortex") %>%
+  #dplyr::filter(Diagnosis != "PSP") %>%
+  #dplyr::filter(Diagnosis != "Pathologic Aging") %>%
+  ggplot(aes(x=PC1, y = PC2, colour = Diagnosis)) + 
+  geom_point(alpha = 0.9, size = 3) +
+  scale_color_manual(values = c("yellow", "white", "cyan", "lightgreen"))+
+  #geom_text_repel(aes(label=SampleID),size=2, hjust=-0.1, vjust=0.1)+
+  theme_bw() +
+  theme(aspect.ratio = 1)
+human_tsne
+
+library(export)
+export::graph2ppt(human_tsne, here::here("R/IREGenes/fig/human_ire3_pca_2"))
+
+
+```
+
+
+```{r}
+utr3_iregenes_pca$x %>% magrittr::extract(, c("PC1", "PC2"))%>%
+  as.data.frame() %>%
+  rownames_to_column("SampleID")  %>%
+  left_join(mergedSamples, by = "SampleID") %>%
+  dplyr::filter(Tissue == "Cerebellum") %>%
+  ggplot(aes(x = PC1, y = PC2, colour = Diagnosis)) +
+  geom_point(alpha = 0.7, size=3) +
+  theme(aspect.ratio = 1) + 
+  labs(x = "PC1", y = "PC2") +
+  theme_bw() 
+
+summary(utr3_iregenes_pca)
+```
+
+
+```{r}
+pcaCounts <- mergedCounts %>% cpm(log=T) %>% t %>% prcomp
+
+ggbiplot::ggbiplot(pcaCounts, 
+                   choices = c(1,2),
+                     obs.scale = 1, 
+                     var.scale = 1, 
+                     labels.size = 1, 
+                     var.axes = FALSE, 
+                     varname.size = 1,
+                     groups = mergedSamples$Tissue, 
+                     ellipse = TRUE,
+                     circle = TRUE) +
+    scale_color_discrete(name = "Group") +
+    theme(legend.direction = "horizontal", 
+          legend.position = "bottom", 
+          aspect.ratio = 1)
+
+ggbiplot::ggbiplot(pcaCounts, 
+                   choices = c(2,3),
+                     obs.scale = 1, 
+                     var.scale = 1, 
+                     labels.size = 1, 
+                     var.axes = FALSE, 
+                     varname.size = 1,
+                     groups = as.factor(mergedSamples$ApoE), 
+                     ellipse = TRUE,
+                     circle = TRUE) +
+    scale_color_discrete(name = "Group") +
+    theme(legend.direction = "horizontal", 
+          legend.position = "bottom", 
+          aspect.ratio = 1)
+
+
+ggbiplot::ggbiplot(pcaCounts, 
+                   choices = c(2,4),
+                     obs.scale = 1, 
+                     var.scale = 1, 
+                     labels.size = 1, 
+                     var.axes = FALSE, 
+                     varname.size = 1,
+                     groups = as.factor(mergedSamples$Diagnosis), 
+                     ellipse = TRUE,
+                     circle = TRUE) +
+    scale_color_discrete(name = "Group") +
+    theme(legend.direction = "horizontal", 
+          legend.position = "bottom", 
+          aspect.ratio = 1)
+```
+
+### 2.5. BioMart Gene Annotation
+
+Retrieve gene information from BioMart. 
+```{r}
+# Load human biomart object
+huMart <- useMart("ENSEMBL_MART_ENSEMBL", dataset = "hsapiens_gene_ensembl")
+
+# Retrieve gene annotations from BioMart. 
+genes <- getBM(
+  attributes = c("ensembl_gene_id", "external_gene_name", "description", "gene_biotype"), 
+  filters = "ensembl_gene_id",
+  values = rownames(mergedCounts), 
+  mart = huMart) 
+
+genes2 <- as.data.frame(org.Hs.egENSEMBL) %>% 
+  left_join(as.data.frame(org.Hs.egSYMBOL)) %>% 
+  left_join(as.data.frame(org.Hs.egGENENAME))
+
+genes3 <- mergedCounts %>% rownames_to_column("ensembl_gene_id") %>%
+  left_join(genes, by = c("ensembl_gene_id")) %>%
+  distinct(ensembl_gene_id, .keep_all = TRUE) %>%
+  dplyr::select(-contains("TCX"), -contains("CER"))%>%
+  column_to_rownames("ensembl_gene_id")
+
+# genes2 <- genes %>%
+#   right_join(mergedCounts %>% rownames_to_column("ensembl_gene_id")) %>%
+#   dplyr::select(-contains("TCX"), -contains("CER")) %>%
+#   column_to_rownames("ensembl_gene_id") %>%
+#   extract(rownames(mergedCounts),) %>%
+#   rownames_to_column("ensembl_gene_id") %>%
+#   filter(complete.cases(.)) %>%
+#   column_to_rownames("ensembl_gene_id")
+# 
+# genes2 <- genes %>%
+#   mutate(
+#     gene_gc_content = percentage_gene_gc_content/100,
+#     length = end_position-start_position
+#     ) %>%
+#   dplyr::select(-percentage_gene_gc_content, -end_position, -start_position) %>%
+#   column_to_rownames("ensembl_gene_id") %>%
+#   extract(rownames(mergedCounts),) %>%
+#   rownames_to_column("ensembl_gene_id") %>%
+#   filter(complete.cases(.)) %>%
+#   column_to_rownames("ensembl_gene_id")
+# 
+# mergedCounts %<>% extract(rownames(genes2),) 
+
+genes3
+dim(genes3)
+dim(mergedCounts)
+table(rownames(genes3)==rownames(mergedCounts))
+```
+
+### 2.6. DGEList and Normalisation
+
+```{r}
+mayo_DGE <- DGEList(
+  counts = mergedCounts,
+  samples = mergedSamples,
+  genes = genes3,
+  remove.zeros = TRUE
+) %>%
+  calcNormFactors("TMM")
+
+mayo_DGE$samples %<>%
+  mutate(
+    Tissue = as.factor(Tissue),
+    Diagnosis = as.factor(gsub(x = Diagnosis, pattern = " ", replacement = "_")) %>% relevel("Control"),
+    Sex = as.factor(Sex),
+    AgeAtDeath = as.numeric(gsub(x = AgeAtDeath, pattern = "90_or_above", replacement = 90)),
+    ApoE = as.factor(ApoE),
+    Name = as.factor(Name)
+  )
+```
+
+There are `r nrow(mayo_DGE$counts)` genes expressed across `r ncol(mayo_DGE$counts)` samples. 
+
+### 2.7. DE Analysis
+
+```{r}
+# Create the design matrix defining  which samples belong to which groups. 
+mayo_DGE$samples %<>% mutate(group = as.factor(paste0(Diagnosis, "_", Tissue)))
+
+design <- model.matrix(~0 + group, data = mayo_DGE$samples) %>%
+  set_colnames(gsub(x = colnames(.), pattern = "group", replacement = ""))
+
+# Apply the voom method, which transforms discrete count data into continuous log-normal distribution. 
+voomData <- voom(mayo_DGE, design = design, plot = TRUE)
+
+#dupcors <- duplicateCorrelation(voomData, design, block=mayo_DGE$samples$Name)
+dupcors <- 0.2299367
+
+sampleWeights <- data.frame(rownames(voomData$targets), voomData$sample.weights) %>% 
+  set_colnames(c("samples", "weights"))
+
+# Define the contrasts (comparisons) which we will test for differential expression.
+contrasts <- makeContrasts(
+  levels = colnames(design), 
+  
+  # Effect of  cerebellum vs temporal cortex in each disease condition
+  AD_TissueEffect = AD_Cerebellum-AD_TemporalCortex,
+  PA_TissueEffect = Pathologic_Aging_Cerebellum-Pathologic_Aging_TemporalCortex,
+  Control_TissueEffect = Control_Cerebellum-Control_TemporalCortex,
+  PSP_TissueEffect = PSP_Cerebellum-PSP_TemporalCortex,
+  
+  # Effect of disease state / diagnosis in cerebellum tissue
+  Cerebellum_ADvsControl = AD_Cerebellum-Control_Cerebellum,
+  Cerebellum_ADvsPA = AD_Cerebellum-Pathologic_Aging_Cerebellum,
+  Cerebellum_ADvsPSP = AD_Cerebellum-PSP_Cerebellum,
+  Cerebellum_PAvsControl = Pathologic_Aging_Cerebellum-Control_Cerebellum,
+  Cerebellum_PSPvsControl = PSP_Cerebellum-Control_Cerebellum,
+  
+  # Effect of disease state / diagnosis in temporal cortex tissue
+  TemporalCortex_ADvsControl = AD_TemporalCortex-Control_TemporalCortex,
+  TemporalCortex_ADvsPA = AD_TemporalCortex-Pathologic_Aging_TemporalCortex,
+  TemporalCortex_ADvsPSP = AD_TemporalCortex-PSP_TemporalCortex,
+  TemporalCortex_PAvsControl = Pathologic_Aging_TemporalCortex-Control_TemporalCortex,
+  TemporalCortex_PSPvsControl = PSP_TemporalCortex-Control_TemporalCortex
+)
+
+# Do moderated t-test for each gene to test for differential expression. 
+# The empirical Bayes step "borrows" information across genes to increase accuracy of variance estimation.
+fit <- lmFit(voomData, design, block = mayo_DGE$samples$Name, correlation = dupcors) %>%
+  contrasts.fit(contrasts) %>%
+  eBayes(robust = TRUE)
+fit <- readRDS("R/IREGenes/data/mayo/fit.rds")
+plotSA(fit, main = "Final model: Mean-variance trend")
+
+# Apply fdr adjustment and adjusted p-value cutoff of 0.05 to define significance.
+results <- decideTests(fit, p.value = 0.05, adjust.method = "fdr", method= "global", lfc = 0.5)
+summary(results)
+```
+
+## 3. Enrichment Analysis
+
+### 3.1. Gene sets and indexing
+
+- We define gene sets corresponding to all predicted genes containing IREs, as well as the high-quality ("strict IRE") genes only. 
+- The gene sets are then indexed according to the ordering of genes in the `voomData` object for further gene set enrichment analysis. 
+
+```{r}
+ireGenes <- list(
+  ire3_all <- ireUtr3$gene_id %>% unique,
+  ire5_all <- ireUtr5$gene_id %>% unique,
+  ire3_hq <- ireUtr3 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique,
+  ire5_hq <- ireUtr5 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique
+) %>% set_names(c("ire3_all", "ire5_all", "ire3_hq", "ire5_hq"))
+
+human_ire_idx <- ids2indices(ireGenes, rownames(voomData))
+
+human_ire_idx %>% lapply(head,20)
+# saveRDS(human_ire_idx, here::here("R/IREGenes/data/human_ire_idx.rds"))
+```
+
+### 3.2. Gene set test methods
+
+- We will be using the **fry**, **fgsea**, and **camera** methods to perform GSEA on the gene sets, and then combine the results (*p*-values) of each individual gene test using Wilkinson's method.
+- Adjustment for multiple testing across all tests will be done using FDR and Bonferroni. The function for doing all this is in the `combinedGSEA.R` file.
+
+```{r,eval=FALSE}
+source(here::here("R","GSEA","combinedGSEA.R"))
+```
+
+### 3.3. Run GSEA
+
+- The three methods were run using the `combinedGSEA()` function used for the zebrafish analysis. 
+- NOTE: The following line takes ~1-2 hours to run. 
+
+```{r eval=FALSE}
+gseaResults_humanIREs <- combinedGSEA3(voomData, human_ire_idx, design, contrasts, fit)
+# saveRDS(gseaResults_humanIREs, here("R/IREGenes/data/gseaResults_humanIREs.rds"))
+gseaResults_humanIREs <- readRDS(here::here("R/IREGenes/data/gseaResults_humanIREs.rds"))
+```
+
+- The combined results from the methods *camera*, *fgsea*, and *fry* are shown below. 
+- All relevant comparisons (**AD vs control**, **PA vs control**, **AD vs PA**) have significant enrichment *p*-values after Bonferroni adjustment. 
+
+```{r}
+gseaResults_humanIREs$combTest
+```
+
+
+## 4. Overlap with Q96_K97del/+ zebrafish results
+
+### 4.1. Import zebrafish results
+
+- We will now import in the results from the Q96_K97del/+ dataset to compare with the human AD dataset.
+
+```{r}
+gseaResults_ire <- readRDS(here::here("R/GSEA/results/gseaResults_ire.rds"))
+zebContrasts <- readRDS(here::here("R/DE/data/contrasts_g.rds")) 
+```
+
+```{r}
+zebRes <- readRDS(here::here("R/DE/data/write_fit_g.rds")) %>%
+  dplyr::rename(Genes.A = A,
+                F_p_value = F.p.value) %>%
+  set_colnames(gsub(x = colnames(.), pattern = "p.value", replacement = "p_value")) %>%
+    set_colnames(gsub(x = colnames(.), pattern = "p_value.adj", replacement = "p_value_adj")) %>%
+  dplyr::select(-Genes.entrezid) %>%
+  melt(id.vars = c("Genes.ensembl_gene_id","Genes.A","Genes.gene_name", "Genes.description", "Genes.gene_biotype")) %>%
+  separate(col = variable, into = c("variable", "comparison"), sep = "\\.")
+
+zebRes2 <- colnames(zebContrasts) %>% lapply(function(x){
+  zebRes %>% filter(comparison == x) %>%
+    dplyr::select(-comparison) %>% 
+    dcast(Genes.ensembl_gene_id + Genes.gene_name  + Genes.gene_biotype + Genes.description ~ variable) 
+}) %>% set_names(colnames(zebContrasts))
+
+zebRes_sig <- zebRes2 %>% lapply(function(x){
+  x %>% filter(abs(t) > 2)
+})
+
+zebRes_sig %>% lapply(dim)
+```
+
+
+### 4.2. Zebrafish and human gene mapping
+
+- To compare zebrafish and human gene IDs, we need a mapping between their Ensembl gene IDs. 
+
+```{r}
+# Human entrez and ensembl IDs:
+humanEntrezEns <- org.Hs.egENSEMBL %>% 
+  as.data.frame %>%
+  set_colnames(c("human_entrezgene", "human_ensembl"))
+
+# Zebrafish ensembl IDs:
+zebEns <- org.Dr.egENSEMBL %>%
+  as.data.frame %>%
+  set_colnames(c("zeb_entrezgene", "zeb_ensembl"))
+
+# Create a data.frame to map between human entrezgenes and zebrafish ensembl IDs.
+# BioMart only includes homolog mappings for ensembl IDs which is why we need to 
+# retrieve human ensembl IDs, then join to the humanEntrezEns data.frame,
+# in order to get the desired human entrezgenes to zebrafish ensembl ID mapping. 
+zebMart <- useMart("ENSEMBL_MART_ENSEMBL", "drerio_gene_ensembl")
+getFromBiomart <- c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene")
+zebAndHumanEnsGenes <- getBM(getFromBiomart, values = unique(zebEns$zeb_ensembl), mart = zebMart) %>%
+  set_colnames(c("zebrafish_ensembl", "human_ensembl")) #%>%
+  # left_join(humanEntrezEns, by = "human_ensembl") %>%
+  # dplyr::select(-human_ensembl) %>% 
+  # dplyr::filter(complete.cases(.))
+
+# Only include genes which are homologs in human and zebrafish.
+zebAndHumanEnsGenes %<>% filter(grepl("ENS",human_ensembl))
+```
+
+- There are `r nrow(zebAndHumanEnsGenes)` genes that are present in both zebrafish and human which we will include for further analysis. 
+
+### 4.3. Write DE genes for each comparison
+
+- First, I modify the *limma* `write.fit()` function so that we can keep it as an object in R rather than exporting to a file. This function writes the DE results from the `fit` object into a data.frame, along with the `results` object. Unlike `topTable`, it allows us to use different methods for p-value adjustment across contrasts. 
+- In this analysis, we use the `method = global` option which appends all the tests together into one long vector of tests, i.e., it treats all the tests as equivalent regardless of which probe or contrast they relate tso that the raw p-value cutoff is consistent across all contrasts. According to the *limma* [user guide](https://www.bioconductor.org/packages/release/bioc/vignettes/limma/inst/doc/usersguide.pdf), `method = global` is recommended if we want to compare the number of DE genes found for different contrasts, for example interpreting the number of DE genes as representing the strength of the contrast
+
+```{r write_fit}
+write_fit <- function(fit, results = NULL, digits = NULL, adjust = "none", method = "separate", F.adjust = "none"){
+    if (!is(fit, "MArrayLM")) 
+        stop("fit should be an MArrayLM object")
+    if (!is.null(results) && !is(results, "TestResults")) 
+        stop("results should be a TestResults object")
+    if (is.null(fit$t) || is.null(fit$p.value)) 
+        fit <- eBayes(fit)
+    method <- match.arg(method, c("separate", "global"))
+    p.value <- as.matrix(fit$p.value)
+    if (adjust == "none") {
+        p.value.adj <- NULL
+    }
+    else {
+        p.value.adj <- p.value
+        if (method == "separate") 
+            for (j in 1:ncol(p.value)) p.value.adj[, j] <- p.adjust(p.value[, 
+                j], method = adjust)
+        if (method == "global") 
+            p.value.adj[] <- p.adjust(p.value, method = adjust)
+    }
+    if (F.adjust == "none" || is.null(fit$F.p.value)) 
+        F.p.value.adj <- NULL
+    else F.p.value.adj <- p.adjust(fit$F.p.value, method = F.adjust)
+    if (is.null(digits)) {
+        rn <- function(x, digits = digits) x
+    }
+    else {
+        rn <- function(x, digits = digits) if (is.null(x)) 
+            NULL
+        else {
+            if (is.matrix(x) && ncol(x) == 1) 
+                x <- x[, 1]
+            round(x, digits = digits)
+        }
+    }
+    tab <- list()
+    tab$A <- rn(fit$Amean, digits = digits - 1)
+    tab$Coef <- rn(fit$coef, digits = digits)
+    tab$t <- rn(fit$t, digits = digits - 1)
+    tab$p.value <- rn(p.value, digits = digits + 2)
+    tab$p.value.adj <- rn(p.value.adj, digits = digits + 3)
+    tab$F <- rn(fit$F, digits = digits - 1)
+    tab$F.p.value <- rn(fit$F.p.value, digits = digits + 2)
+    tab$F.p.value.adj <- rn(F.p.value.adj, digits = digits + 
+        3)
+    tab$Res <- unclass(results)
+    tab$Genes <- fit$genes
+    #return(tab)
+    tab <- data.frame(tab, check.names = FALSE)
+    if (is.null(row.names(fit))) {
+        row.names <- FALSE
+    }
+    else {
+        row.names(tab) <- row.names(fit)
+    }
+    return(tab)
+    # write.table(tab, file = file, quote = quote, row.names = row.names, 
+    #     sep = sep, ...)
+}
+```
+
+- The result of `write_fit` is as a single data.frame, so here we split the data.frame back into individual data.frames for each contrast / comparison. 
+
+```{r}
+res <- write_fit(fit, results = results, adjust = "fdr", method = "global") %>%
+  rownames_to_column("Genes.ensembl_gene_id") %>%
+  dplyr::rename(Genes.A = A,
+                F_p_value = F.p.value) %>%
+  set_colnames(gsub(x = colnames(.), pattern = "p.value", replacement = "p_value")) %>%
+    set_colnames(gsub(x = colnames(.), pattern = "p_value.adj", replacement = "p_value_adj")) %>%
+  melt(id.vars = c("Genes.ensembl_gene_id","Genes.A","Genes.external_gene_name", "Genes.description", "Genes.gene_biotype")) %>%
+  separate(col = variable, into = c("variable", "comparison"), sep = "\\.")
+
+# Create list of data frames, one for each contrast
+res_list <- colnames(contrasts) %>% lapply(function(x){
+  res %>% filter(comparison == x) %>%
+    dplyr::select(-comparison) %>% 
+    dcast(Genes.ensembl_gene_id + Genes.external_gene_name + Genes.gene_biotype + Genes.description ~ variable) 
+}) %>% set_names(colnames(contrasts))
+
+res_list_sig <- res_list %>% lapply(function(x){
+  x %>% filter(Res != 0)
+})
+
+res_list$Cerebellum_ADvsControl %>% head
+res_list_sig %>% lapply(dim)
+```
+
+### 4.4. Filter DE genes for IREs
+
+- The next step is to filter the human DE genes for ones containing IREs. We are interested in the following comparisons:
+
+```{r}
+utr3_deGenes <- res_list_sig[grepl(pattern = "_AD|_PA", names(res_list_sig))] %>% 
+  lapply(function(x){
+    x %>% filter(Genes.ensembl_gene_id %in% ireGenes$ire3_all) %>%
+      left_join(zebAndHumanEnsGenes, by = c("Genes.ensembl_gene_id" = "human_ensembl")) %>%
+      mutate(
+        DEinzeb6mthMutants = (zebrafish_ensembl %in% zebRes_sig$normoxia_6mth_mutant_vs_wt$Genes.ensembl_gene_id),
+        DEinzeb24mthMutants = (zebrafish_ensembl %in% zebRes_sig$normoxia_24mth_mutant_vs_wt$Genes.ensembl_gene_id)
+      )
+})
+
+utr3_deGenes_sig <- utr3_deGenes %>% lapply(function(x){
+  x %>% filter(DEinzeb6mthMutants == TRUE | DEinzeb24mthMutants == TRUE)
+})
+
+utr3_deGenes_sig %>% lapply(dim)
+
+# utr3_deGenes %>% lapply(dim)
+# 
+# utr3_deGenes$TemporalCortex_ADvsControl %>% filter(
+#   zebrafish_ensembl %in% zebRes_sig$normoxia_6mth_mutant_vs_wt$Genes.ensembl_gene_id
+
+```
+
+- Temporal cortex: AD vs control
+
+```{r}
+utr3_deGenes_sig$TemporalCortex_ADvsControl %>% dplyr::select(Genes.external_gene_name, Genes.description,
+                                                                            starts_with("DEin"))%>%
+  dplyr::arrange(desc(DEinzeb6mthMutants)) %>% as_tibble
+```
+
+- Cerebellum: AD vs control
+```{r}
+utr3_deGenes_sig$Cerebellum_ADvsControl %>% dplyr::select(Genes.external_gene_name, Genes.description,
+                                                                            starts_with("DEin"))%>%
+  dplyr::arrange(desc(DEinzeb6mthMutants)) %>% as_tibble
+```
+
+## 5. Comparing IRE expression patterns in different groups
+
+```{r}
+
+```
+
+
+
+- Comparison between human and zebrafish IREs. Discussion point strrict vs IRE-like. 
+
+- Genes that have both 3' or 5' were excluded. 
+
+- Find genes in the DE which have HREs / present in Hallmark hypoxia and exclude them. Transcriptionally, they are not involved in iron hoeostasis. Differentiate between effect due to hypoxia response element in promoters vs. iron deficiency response. 
+- IRE dataset more confidence responding to iron. 
+
+
+- Venn diagram of gene overlap (High-High, All-All, High-All between zebrafish and human)
