@@ -1,0 +1,178 @@
+---
+title: "Comparison between human and zebrafish IRE gene sets"
+output: html_notebook
+---
+
+```{r include=FALSE}
+library(org.Dr.eg.db)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(biomaRt)
+library(dplyr)
+library(magrittr)
+```
+
+
+## 0. Introduction
+
+- IRE gene sets have been defined for reference zebrafish (z11) and human (hg38) genome assemblies.
+- The aim of this analysis is to compare these gene sets and see how well genes are conserved between them. 
+
+## 1. Import Data
+
+### 1.1. Lists of genes
+
+```{r}
+zebrafishIreGenes <- readRDS(here::here("R/GSEA/data/ireGenes.rds"))
+humanIreGenes <- readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
+mouseIreGenes <- readRDS(here::here("R/Mouse/data/mouse_ireSets.rds"))
+
+str(zebrafishIreGenes)
+str(humanIreGenes)
+str(mouseIreGenes)
+```
+
+Convert human to zebrafish genes:
+```{r}
+# Zebrafish ensembl IDs:
+zebEns <- org.Dr.egENSEMBL %>%
+  as.data.frame %>%
+  set_colnames(c("zeb_entrezgene", "zeb_ensembl"))
+
+zebMart <- useMart("ENSEMBL_MART_ENSEMBL", "drerio_gene_ensembl")
+zebToHuman <- getBM(c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene"),
+                    values = unique(zebEns$zeb_ensembl), mart = zebMart) %>%
+  set_colnames(c("zebrafish_ensembl","human_ensembl")) %>%
+  dplyr::filter(grepl("ENSG",human_ensembl))
+
+humanIreGenes_z <- humanIreGenes %>% lapply(function(x){
+  x %>% as.data.frame %>%
+    set_colnames("human_ensembl") %>%
+    left_join(zebToHuman) %>%
+    dplyr::filter(complete.cases(.))%>%
+    dplyr::select(-human_ensembl)%>%
+    as.list() %>% unname() %>% .[[1]] %>% unique
+})
+
+humanIreGenes_z %>% str
+```
+
+```{r}
+intersectedGenes <- list(
+  ire3_all = intersect(zebrafishIreGenes$ire3_all, humanIreGenes_z$ire3_all),
+  ire5_all = intersect(zebrafishIreGenes$ire5_all, humanIreGenes_z$ire5_all),
+  ire3_hq = intersect(zebrafishIreGenes$ire3_hq, humanIreGenes_z$ire3_hq),
+  ire5_hq = intersect(zebrafishIreGenes$ire5_hq, humanIreGenes_z$ire5_hq)
+)
+
+str(intersectedGenes)
+
+```
+
+What if we try converting zebrafish genes to human genes?
+
+```{r}
+# Zebrafish ensembl IDs:
+huEns <- org.Hs.egENSEMBL %>%
+  as.data.frame %>%
+  set_colnames(c("hu_entrezgene", "hu_ensembl"))
+
+huMart <- useMart("ENSEMBL_MART_ENSEMBL", "hsapiens_gene_ensembl")
+huToZeb <- getBM(c("ensembl_gene_id", "drerio_homolog_ensembl_gene"),
+                    values = unique(huEns$hu_ensembl), mart = huMart) %>%
+  set_colnames(c("human_ensembl","zeb_ensembl"))# %>%
+  #dplyr::filter(grepl("ENSG",human_ensembl))
+
+zebrafishIreGenes_h <- zebrafishIreGenes %>% lapply(function(x){
+  x %>% as.data.frame %>%
+    set_colnames("zeb_ensembl") %>%
+    left_join(huToZeb) %>%
+    dplyr::filter(complete.cases(.))%>%
+    dplyr::select(-zeb_ensembl)%>%
+    as.list() %>% unname() %>% .[[1]] %>% unique
+})
+
+zebrafishIreGenes %>% str
+zebrafishIreGenes_h %>% str
+```
+
+```{r}
+intersectedGenes2 <- list(
+  ire3_all = intersect(humanIreGenes$ire3_all, zebrafishIreGenes_h$ire3_all),
+  ire5_all = intersect(humanIreGenes$ire5_all, zebrafishIreGenes_h$ire5_all),
+  ire3_hq = intersect(humanIreGenes$ire3_hq, zebrafishIreGenes_h$ire3_hq),
+  ire5_hq = intersect(humanIreGenes$ire5_hq, zebrafishIreGenes_h$ire5_hq)
+)
+
+str(intersectedGenes2)
+```
+
+### 1.1.1. Convert mouse to human
+
+```{r}
+# Mouse entrez and ensembl ids:
+mEns <- org.Mm.egENSEMBL %>%
+  as.data.frame %>%
+  set_colnames(c("m_entrezgene","m_ensembl"))
+
+mMart <- useMart("ENSEMBL_MART_ENSEMBL", "mmusculus_gene_ensembl")
+
+mToHu <- getBM(c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene"),
+                    values = unique(mEns$m_ensembl), mart = mMart) %>%
+  set_colnames(c("m_ensembl","hu_ensembl"))# %>%
+  #dplyr::filter(grepl("ENSG",human_ensembl))
+
+mouseIreGenes_h <- mouseIreGenes %>% lapply(function(x){
+  x %>% as.data.frame %>%
+    set_colnames("m_ensembl") %>%
+    left_join(mToHu) %>%
+    dplyr::filter(complete.cases(.))%>%
+    dplyr::select(-m_ensembl)%>%
+    as.list() %>% unname() %>% .[[1]] %>% unique
+})
+
+mouseIreGenes %>% str
+mouseIreGenes_h %>% str
+
+```
+
+## 2. Write lists for UpSetR
+
+```{r}
+### 3 IRES
+
+write(paste(humanIreGenes$ire3_all, collapse = ','), here::here("R/IREGenes/data/human_ire3all.txt"))
+write(paste(humanIreGenes$ire3_hq, collapse = ','), here::here("R/IREGenes/data/human_ire3hq.txt"))
+
+write(paste(mouseIreGenes_h$ire3_all, collapse = ','), here::here("R/IREGenes/data/mouse_ire3all.txt"))
+write(paste(mouseIreGenes_h$ire3_hq, collapse = ','), here::here("R/IREGenes/data/mouse_ire3hq.txt"))
+
+write(paste(zebrafishIreGenes_h$ire3_all, collapse = ','), here::here("R/IREGenes/data/zebrafish_ire3all.txt"))
+write(paste(zebrafishIreGenes_h$ire3_hq, collapse = ','), here::here("R/IREGenes/data/zebrafish_ire3hq.txt"))
+
+### 5 IRES
+
+write(paste(humanIreGenes$ire5_all, collapse = ','), here::here("R/IREGenes/data/human_ire5all.txt"))
+write(paste(humanIreGenes$ire5_hq, collapse = ','), here::here("R/IREGenes/data/human_ire5hq.txt"))
+
+write(paste(mouseIreGenes_h$ire5_all, collapse = ','), here::here("R/IREGenes/data/mouse_ire5all.txt"))
+write(paste(mouseIreGenes_h$ire5_hq, collapse = ','), here::here("R/IREGenes/data/mouse_ire5hq.txt"))
+
+write(paste(zebrafishIreGenes_h$ire5_all, collapse = ','), here::here("R/IREGenes/data/zebrafish_ire5all.txt"))
+write(paste(zebrafishIreGenes_h$ire5_hq, collapse = ','), here::here("R/IREGenes/data/zebrafish_ire5hq.txt"))
+
+```
+
+```{r}
+zebrafishIreGenes_h %>% saveRDS(here::here("R/IREGenes/data/zebrafishIreGenes_h.rds"))
+mouseIreGenes_h %>% saveRDS(here::here("R/IREGenes/data/mouseIreGenes_h.rds"))
+```
+
+
+
+## 3. GFF files output from SIREs
+
+```{r}
+
+```
+
