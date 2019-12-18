@@ -4,11 +4,96 @@ output: html_notebook
 ---
 
 ```{r}
+library(magrittr)
 library(GEOquery)
+library(tibble)
+library(readr)
+library(dplyr)
 ```
 
 
 ## 1. Import Data
+
+We will firstly import the counts data and sample metadata from GEO. 
+
+The counts were downloaded as the 
+`GSE140286_FAD_time_series_rnaseq_raw_count.txt.gz` file 
+from the GEO accession 
+[GSE140286](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE140286).
+
+```{r}
+counts <- here::here("R/Mouse/data/GSE140286_FAD_time_series_rnaseq_raw_count.txt") %>%
+  read_tsv
+
+counts
+```
+
+The names of the samples are:
+```{r}
+sampleNames <- counts[,-c(1)] %>% colnames
+sampleNames
+```
+
+
+The samples were then retrieved from GEO and converted into a `tibble`. 
+
+```{r}
+samples <- getGEO(filename = here::here("R/Mouse/data/GSE140286_series_matrix.txt"), getGPL = FALSE) %>%
+  phenoData %>%
+  pData %>%
+  as_tibble
+
+head(samples)
+colnames(samples) 
+```
+
+There is a lot of metadata which will be not relevant to our analysis,
+so let's keep only the relevant columns corresponding to `age` in months, 
+`genotype`, and `tissue`. The samples table now looks like this:
+```{r}
+samples %<>% dplyr::select(description.1,
+                          title, 
+                          starts_with("age"),
+                          starts_with("genotype"),
+                          starts_with("tissue"))  %>% 
+    dplyr::rename(id = description.1,
+                name = title,
+                age = `age:ch1`,
+                genotype = `genotype:ch1`,
+                tissue = `tissue:ch1`) %>%
+  dplyr::mutate(age = gsub(x = age, 
+                           pattern = " months", 
+                           replacement = ""),
+                age = as.numeric(age)) %>%
+  dplyr::mutate(genotype = gsub(x = name, 
+                                pattern = "_(.)*$", 
+                                replacement = ""),
+                genotype = factor(genotype, 
+                                  levels = c("5XFAD","WT")))
+
+samples
+```
+
+Check the "id" column in `samples` corresponds to the `sampleNames`.
+```{r}
+samples$id %in% sampleNames
+```
+
+## 2. Analysis
+
+Like our other DE analyses, we will format the data to do a 
+`limma-voom`-based analysis. 
+
+In this analysis, we will perform the comparison mutant (5XFAD) vs WT to:
+
+- identify DE genes (might be able to see some overlap / concordance 
+between this and our zebrafish dataset)
+- gene set enrichment analysis with Hallmark / KEGG gene sets
+- gene set enrichment analysis with IRE gene sets
+
+### 2.1. DE gene analysis
+
+#### 2.1.1. Setting up DGEList object
 
 ```{r}
 
