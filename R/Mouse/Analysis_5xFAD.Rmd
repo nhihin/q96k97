@@ -3,12 +3,60 @@ title: "5xFAD mouse analysis"
 output: html_notebook
 ---
 
-```{r}
+```{r include = FALSE}
+# Load packages
+library(here)
 library(magrittr)
 library(GEOquery)
 library(tibble)
 library(readr)
 library(dplyr)
+library(limma)
+library(edgeR)
+library(UpSetR)
+library(ggplot2)
+theme_set(theme_bw())
+
+# write_fit function adapted from limma::write.fit but keep the fit object in R
+# instead of writing to a table. 
+write_fit <- function(fit, results=NULL, F.adjust="none", adjust="fdr", method="global", ...) {
+    if (!is(fit, "MArrayLM")) 
+        stop("fit should be an MArrayLM object")
+    if (!is.null(results) && !is(results, "TestResults")) 
+        stop("results should be a TestResults object")
+    if (is.null(fit$t) || is.null(fit$p.value)) 
+        fit <- eBayes(fit)
+    method <- match.arg(method, c("separate", "global"))
+    p.value <- as.matrix(fit$p.value)
+    if (adjust == "none") {
+        p.value.adj <- NULL
+    }
+    else {
+        p.value.adj <- p.value
+        if (method == "separate") 
+            for (j in 1:ncol(p.value)) p.value.adj[, j] <- p.adjust(p.value[, 
+                j], method = adjust)
+        if (method == "global") 
+            p.value.adj[] <- p.adjust(p.value, method = adjust)
+    }
+    if (F.adjust == "none" || is.null(fit$F.p.value)) 
+        F.p.value.adj <- NULL
+    else F.p.value.adj <- p.adjust(fit$F.p.value, method = F.adjust)
+    
+    tab <- list()
+    tab$A <- (fit$Amean)
+    tab$Coef <- (fit$coef)
+    tab$t <- (fit$t)
+    tab$p.value <- (p.value)
+    tab$p.value.adj <- (p.value.adj)
+    tab$F <- (fit$F)
+    tab$F.p.value <- (fit$F.p.value)
+    tab$F.p.value.adj <- F.p.value.adj
+    tab$Res <- unclass(results)
+    tab$Genes <- fit$genes
+    tab <- data.frame(tab, check.names = FALSE)
+    return(tab)
+}
 ```
 
 
@@ -74,10 +122,37 @@ samples %<>% dplyr::select(description.1,
 samples
 ```
 
-Check the "id" column in `samples` corresponds to the `sampleNames`.
+Check the "id" column in `samples` corresponds to the `sampleNames`. 
 ```{r}
-samples$id %in% sampleNames
+samples$id %in% sampleNames # Are all samples in sample table present in counts samples?
+samples$id == sampleNames # Is the order the same?
 ```
+
+The ordering of samples isn't the same across the sample table and the 
+counts matrix, so we will re-order the rows in `samples` 
+so that they match the order of `sampleNames` 
+from the `counts` matrix. 
+```{r}
+samples <- samples %>% 
+  as.data.frame %>%
+  set_rownames(.$id) %>%
+  magrittr::extract(sampleNames, )
+```
+
+```{r}
+samples
+samples$id == sampleNames # Confirm order matches now
+```
+
+
+```{r}
+#counts <- as.data.frame(counts) %>% rownames_to_column("Gene")
+```
+
+```{r}
+counts %>% head
+```
+
 
 ## 2. Analysis
 
@@ -93,9 +168,350 @@ between this and our zebrafish dataset)
 
 ### 2.1. DE gene analysis
 
-#### 2.1.1. Setting up DGEList object
+#### 2.1.1. Gene annotation from `AnnotationHub`
+
+We will retrieve the gene annotation from Ensembl release 94 as follows.
 
 ```{r}
+ah <- AnnotationHub()
+ah %>%
+  subset(grepl("musculus", species)) %>%
+  subset(rdataclass == "EnsDb")
+ensDb <- ah[["AH64944"]]
+genes <- genes(ensDb)
+genes <- as.data.frame(genes)
+head(genes)
+```
 
+We will filter `genes` to only contain those identified in this particular 
+RNA-seq experiment (`Gene` column in the `counts` object). 
+
+```{r}
+genes <- genes %>% dplyr::filter(gene_id %in% counts$Gene) %>% 
+  column_to_rownames("gene_id") %>%
+  magrittr::extract(counts$Gene, ) %>%
+  mutate(ensembl_gene_id = rownames(.))
+
+head(genes)
+```
+
+
+#### 2.1.2. Setting up DGEList object
+
+The `samples`, `counts` and `genes` will be stored in a DGEList object 
+for the DE analysis using *limma*. 
+
+```{r}
+dge <- DGEList(
+  counts = counts %>% column_to_rownames("Gene"),
+  samples = samples,
+  genes = genes,
+  remove.zeros = TRUE
+) %>%
+  calcNormFactors("TMM")
+```
+
+Preview the DGEList and the normalisation factors calculated:
+```{r}
+dge
+dge$samples$norm.factors
+```
+
+#### 2.1.3. Data Exploration
+
+##### Principal Component Analysis
+
+We will use PCA to visualise how similar the samples are to each other 
+based on their overall gene expression. 
+
+The PCA plot below reveals the following features:
+
+- **PC1** separates **genotype**, indicating that **genotype** contributes 
+to the major source of variation in the data. 
+- **PC2** somewhat shows some separation between age groups, but this isn't 
+a strong and consistent effect. 
+
+
+```{r}
+pca <- prcomp(t(cpm(dge, log = TRUE)))
+
+shape_factor <- paste0(samples$genotype, "_", samples$age) %>% 
+  factor(levels = unique(.))
+
+pca_plot <- pca$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  set_colnames(c("PCa", "PCb")) %>%
+  as.data.frame %>%
+  rownames_to_column("samples") %>%
+  left_join((dge$samples %>% rownames_to_column("samples")), by="samples") %>%
+  ggplot(aes(x=PCa, y = PCb, shape = genotype, colour = as.factor(age))) +
+  geom_point(shape = 1,size = 3.3)+
+  geom_point(alpha = 1,size=3) + 
+  scale_shape_manual(values = c(1,16)) + 
+  #scale_shape_manual(values = c(0,15,1,16,2,17),
+  #                   labels = levels(shape_factor)) +
+  labs(x = "Principal Component 1 (20.5%)", 
+       y = "Principal Component 2 (11%)",
+       colour = "Age (Months)", 
+       shape = "Genotype") +
+  theme(aspect.ratio = 1)
+  
+
+pca_plot
+```
+
+
+#### 2.1.4. DE Analysis
+
+Create a new variable that groups together the age and genotype:
+```{r}
+dge$samples %<>% mutate(group = as.factor(paste0("mth", age, "_", genotype)))
+```
+
+Create the design matrix so we can perform comparisons between groups. 
+```{r}
+design <- model.matrix(~0 + group, data = dge$samples) %>%
+  set_colnames(gsub(x = colnames(.), pattern = "group", replacement = ""))
+design
+```
+
+Apply the voom method to transform discrete count data into continuous
+```{r}
+voomData <- voomWithQualityWeights(dge, design = design, plot = TRUE)
+```
+
+Define contrasts / comparisons
+```{r}
+contrasts <- makeContrasts(
+  levels = colnames(design),
+  effectOfMutation_3mth = mth3_5XFAD-mth3_WT,
+  effectOfMutation_6mth = mth6_5XFAD-mth6_WT,
+  effectOfMutation_12mth = mth12_5XFAD-mth12_WT,
+  effectOfAging_12vs6 = mth12_WT-mth6_WT,
+  effectOfAging_6vs3 = mth6_WT-mth3_WT,
+  effectOfAging_12vs3 = mth12_WT-mth3_WT
+)
+```
+
+Fit the model and see how many overlapping genes there are between comparisons. 
+```{r}
+fit <- lmFit(voomData, design) %>%
+  contrasts.fit(contrasts) %>%
+  eBayes(robust = TRUE)
+
+results <- decideTests(fit, p.value = 0.05, adjust.method = "fdr", method = "global")
+results %>% summary()
+#vennCounts(results)
+```
+
+```{r}
+write_fit <- write_fit(fit, results)
+
+write_fit_sig <- write_fit %>% dplyr::filter(Res.effectOfMutation_3mth != 0 | 
+                                        Res.effectOfMutation_6mth != 0 |
+                                        Res.effectOfMutation_12mth != 0)
+```
+
+Write out analysis objects
+```{r}
+dataDir <- here::here("R/Mouse/data")
+
+design %>% saveRDS(file.path(dataDir, "design.rds"))
+contrasts %>% saveRDS(file.path(dataDir, "contrasts.rds"))
+voomData %>% saveRDS(file.path(dataDir, "voomData.rds"))
+fit %>% saveRDS(file.path(dataDir, "fit.rds"))
+write_fit %>% saveRDS(file.path(dataDir, "write_fit.rds"))
+
+```
+
+### 2.2. Gene Set Enrichment Analysis
+
+We will be using the workflow in `GSEA_Workflow.Rmd`. 
+The steps specific to the mouse dataset are shown below. 
+
+```{r, eval=FALSE}
+v <- voomData
+
+buildGenesetIndex <- function(x, voomObj = v){
+  limma::ids2indices(x, rownames(voomObj)) 
+}
+
+genesetsDir <- here::here("R", "GSEA", "data", "human")
+h_mapped_m <- readRDS(file.path(genesetsDir, "ens_h_mapped_m.rds"))
+c1_mapped_m <- readRDS(file.path(genesetsDir, "ens_c1_mapped_m.rds"))
+c2_mapped_m <- readRDS(file.path(genesetsDir, "ens_c2_mapped_m.rds"))
+c3_mapped_m <- readRDS(file.path(genesetsDir, "ens_c3_mapped_m.rds"))
+c4_mapped_m <- readRDS(file.path(genesetsDir, "ens_c4_mapped_m.rds"))
+c5_mapped_m <- readRDS(file.path(genesetsDir, "ens_c5_mapped_m.rds"))
+c6_mapped_m <- readRDS(file.path(genesetsDir, "ens_c6_mapped_m.rds"))
+c7_mapped_m <- readRDS(file.path(genesetsDir, "ens_c7_mapped_m.rds"))
+
+# Build indices for the GSEA gene sets
+h_idx <- buildGenesetIndex(h_mapped_m)
+c1_idx <- buildGenesetIndex(c1_mapped_m)
+c2_idx <- buildGenesetIndex(c2_mapped_m)
+c3_idx <- buildGenesetIndex(c3_mapped_m)
+c4_idx <- buildGenesetIndex(c4_mapped_m)
+c5_idx <- buildGenesetIndex(c5_mapped_m)
+c6_idx <- buildGenesetIndex(c6_mapped_m)
+c7_idx <- buildGenesetIndex(c7_mapped_m)
+
+# Kegg index
+kegg_idx <- c2_idx[(names(c2_idx) %>% stringr::str_detect("KEGG"))]
+
+# IRE genes
+mouseIreGenes <- readRDS(here::here("R/Mouse/data/mouse_ireSets.rds"))
+ireGenes_idx <- buildGenesetIndex(mouseIreGenes)
+```
+
+The three GSEA methods used were `fry`, `fgsea`, and `camera`. The 
+`combinedGSEA()` function returns the individual results for each method 
+as well as the combined results (*p*-values combined using Wilkinson's 
+method and then FDR or bonferroni-adjusted). 
+
+```{r eval=FALSE}
+source(here("R","GSEA","combinedGSEA.R"))
+gseaResults_mouse_kegg <- combinedGSEA(v, kegg_idx, design, contrasts)
+gseaResults_mouse_ire <- combinedGSEA(v, ireGenes_idx, design, contrasts)
+gseaResults_mouse_h <- combinedGSEA(v, h_idx, design, contrasts)
+```
+
+Because `combinedGSEA` takes a while to run, we will save the objects to 
+have a closer look at them later without having to re-run the analysis. 
+
+```{r}
+gseaResults_mouse_kegg %>% saveRDS(file.path(dataDir, "gseaResults_mouse_kegg.rds"))
+gseaResults_mouse_ire %>% saveRDS(file.path(dataDir, "gseaResults_mouse_ire.rds"))
+gseaResults_mouse_h %>% saveRDS(file.path(dataDir, "gseaResults_mouse_h.rds"))
+```
+
+
+#### 2.2.1. Results
+
+Import in the saved R objects:
+
+```{r}
+gseaResults_mouse_kegg <- readRDS(file.path(dataDir, "gseaResults_mouse_kegg.rds"))
+gseaResults_mouse_ire <- readRDS(file.path(dataDir, "gseaResults_mouse_ire.rds"))
+gseaResults_mouse_h <- readRDS(file.path(dataDir, "gseaResults_mouse_h.rds"))
+```
+
+##### Hallmark 
+
+The `gseaResults_mouse_h` object contains the results from gene set testing 
+using the Hallmark gene set collection. This collection represents 50 
+different and non-redundant biological activities and is often a useful 
+starting point to assess the biological relevance of gene expression 
+changes in a particular comparison. 
+
+The comparisons we are interested in are:
+
+- Mutant (5xFAD) vs wild-type at **3 months**
+- Mutant (5xFAD) vs wild-type at **6 months**
+- Mutant (5xFAD) vs wild-type at **12 months**
+
+The tables below show that the **hedgehog signalling** gene set along with 
+immune-related gene sets seem to be the most significantly enriched. 
+
+Energy metabolism / heme metabolism are not highly ranked. 
+There are more significant ones in the older age-group comparisons, 
+supporting that the 5xFAD mutation also has an age-dependent effect 
+where accumulated gene expression changes cause more effects at an older age. 
+
+```{r}
+gseaResults_mouse_h$combTest$effectOfMutation_3mth
+gseaResults_mouse_h$combTest$effectOfMutation_6mth
+gseaResults_mouse_h$combTest$effectOfMutation_12mth
+gseaResults_mouse_h$combTest$effectOfAging_12vs3
+gseaResults_mouse_h$combTest$effectOfAging_12vs6
+gseaResults_mouse_h$combTest$effectOfAging_6vs3
+```
+
+##### IRE 
+
+The IRE gene sets in general show significant enrichment (Bonferroni-adjusted 
+Wilkinson's *p*-value < 0.05). This can be seen in the tables below. 
+
+```{r}
+gseaResults_mouse_ire$combTest$effectOfMutation_3mth
+gseaResults_mouse_ire$combTest$effectOfMutation_6mth
+gseaResults_mouse_ire$combTest$effectOfMutation_12mth
+gseaResults_mouse_ire$combTest$effectOfAging_12vs3
+gseaResults_mouse_ire$combTest$effectOfAging_12vs6
+gseaResults_mouse_ire$combTest$effectOfAging_6vs3
+```
+
+### 2.4. Differences between IRE gene use in aging vs. 5xFAD
+
+Genes contributing most to IRE enrichment in aging
+
+```{r}
+leadingEdge_ire3all <- gseaResults_mouse_ire$indivTest %>% lapply(function(x){
+  x$fgsea %>% 
+    dplyr::arrange(Geneset)
+ x$fgsea$leadingEdge[[1]]
+})
+
+leadingEdge_ire5all <- gseaResults_mouse_ire$indivTest %>% lapply(function(x){
+  x$fgsea %>% 
+    dplyr::arrange(Geneset)
+ x$fgsea$leadingEdge[[2]]
+})
+
+leadingEdge_ire3hq <- gseaResults_mouse_ire$indivTest %>% lapply(function(x){
+  x$fgsea %>% 
+    dplyr::arrange(Geneset)
+ x$fgsea$leadingEdge[[3]]
+})
+
+leadingEdge_ire5hq <- gseaResults_mouse_ire$indivTest %>% lapply(function(x){
+  x$fgsea %>% 
+    dplyr::arrange(Geneset)
+ x$fgsea$leadingEdge[[4]]
+})
+
+leadingEdges <- list(
+  ire3_all = leadingEdge_ire3all,
+  ire5_all = leadingEdge_ire5all,
+  ire3_hq = leadingEdge_ire3hq,
+  ire5_hq = leadingEdge_ire5hq
+)
+
+str(leadingEdges)
+```
+
+These lists of sets can be converted into matrices required for `upSetR`:
+
+```{r}
+l2m <- leadingEdges %>% lapply(fromList)
+```
+
+```{r}
+upset_ire3all <- upset(l2m$ire3_all,
+      nintersects = NA,
+      sets = c("effectOfMutation_3mth", 
+               "effectOfMutation_6mth",
+               "effectOfMutation_12mth",
+               "effectOfAging_12vs6",
+               "effectOfAging_6vs3",
+               "effectOfAging_12vs3"),
+      keep.order = TRUE)
+upset_ire3all
+```
+```{r}
+export::graph2ppt(upset_ire3all, here::here("R/Mouse/fig/upset_ire3all"))
+```
+
+
+
+```{r}
+upset(l2m$ire5_all)
+```
+
+```{r}
+upset(l2m$ire3_hq)
+```
+
+```{r}
+upset(l2m$ire5_hq)
 ```
 

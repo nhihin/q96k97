@@ -103,6 +103,35 @@ write_fit_g <- write_fit(fit_g, results_g, method = "global", adjust = "fdr")
 
 ```
 
+Effect of gender
+```{r}
+dge_g$samples %<>% mutate(genderage = paste0(Gender, "_",Age))
+design_g <- model.matrix(~0 + genderage, data = dge_g$samples) %>%
+  set_colnames(gsub(pattern = "genderage", replacement = "", x = colnames(.)))
+
+voomData_g <- voomWithQualityWeights(dge_g, design = design_g, plot = TRUE)
+
+contrasts_g <- makeContrasts(
+  levels = colnames(design_g), 
+  old = female_24-male_24,
+  young = female_6-male_6
+)
+
+fit_g <- lmFit(voomData_g, design_g) %>%
+  contrasts.fit(contrasts_g) %>%
+  eBayes(robust = TRUE)
+
+treat(fit_g)
+
+results_g <- decideTests(fit_g, p.value = 0.05, adjust.method = "bonferroni", method = "global")
+summary(results_g)
+
+
+write_fit_g <- write_fit(fit_g, results_g, method = "global", adjust = "bonferroni") %>%
+  dplyr::filter(p.value.adj.old < 0.05) %>% View
+```
+
+
 - Transcript-level analysis
 
 ```{r}
