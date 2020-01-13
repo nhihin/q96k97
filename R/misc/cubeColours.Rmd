@@ -1,0 +1,70 @@
+---
+title: "Colour palettes"
+output: html_notebook
+---
+
+```{r}
+library(ggplot2)
+library(leaflet)
+library(RColorBrewer)
+```
+
+## Background
+
+The purpose of this is to generate colour scales that can be used to 
+represent the differences between *p*-values for some figures in the paper. 
+The colour makes it easier to compare at a glance different results 
+and see which ones were highly significant compared to those which only 
+just passed the cutoff of 0.05. 
+
+## Palette
+
+First we need to calculate -log2(pvalue) for the IRE enrichment results. 
+This spreads the numbers out more evenly, which will be better for scaling 
+with the colour palette:
+
+```{r}
+gseaResults_mouse_ire <- readRDS(here::here("R/Mouse/data/gseaResults_mouse_ire.rds"))
+
+df <- gseaResults_mouse_ire$combTest %>% bind_rows %>% 
+  dplyr::select(id, Geneset, wilkinsonp, bonferroni) %>%
+  dplyr::mutate(logP = -log2(wilkinsonp)) %>%
+  mutate(sig = bonferroni < 0.05) %>%
+  dplyr::filter(Geneset %in% c("ire3_all","ire5_all")) %>% as.data.frame
+
+df$logP
+```
+
+The colour palette that will be used is the yellow-orange-red one. This is 
+a discrete colour palette from **RColorBrewer**. 
+
+```{r}
+ylOrRd <- brewer.pal(n = 9, name = "YlOrRd")
+display.brewer.pal(9, "YlOrRd")
+```
+
+The `colorNumeric` function interpolates a discrete palette to make it 
+continuous. We also have to input the range of values which the palette 
+can accept. This is arbitrary, but the range has to include all the 
+values in `df$logP`. 
+
+```{r}
+range(df$logP)
+```
+
+We will use the range 0-20.
+
+```{r}
+pal <- colorNumeric(ylOrRd, 0:20)
+```
+
+The hex colour codes can be generated as follows
+```{r}
+pal(c(df$logP)) 
+```
+
+We can also preview these colours using (opens in Viewer tab).  
+```{r}
+previewColors(pal, df$logP)
+```
+
