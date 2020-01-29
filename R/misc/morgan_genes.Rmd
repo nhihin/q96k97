@@ -1,0 +1,128 @@
+---
+title: "K97fs Analysis"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(reshape2)
+library(magrittr)
+theme_set(theme_bw())
+```
+
+
+## Import data
+
+```{r}
+k97_dge <- readRDS("~/Box/Projects/2_FishToHumanAD/datasets/k97fs/obj/k97fs_dge.rds")
+old_k97_dge <- readRDS("~/Box/Projects/2_FishToHumanAD/datasets/aged_k97fs/obj/oldk97_dge.rds")
+combined_dge <- readRDS("~/Box/Projects/2_FishToHumanAD/datasets/aged_k97fs/combinedDGE.rds")
+
+```
+
+```{r}
+colnames(combined_dge$counts) <- combined_dge$samples$newSampleName
+rownames(combined_dge$samples) <- combined_dge$samples$newSampleName
+combined_dge
+
+combined_dge %>% cpm(log = T) %>% melt %>% set_colnames(c("gene", "sample", "cpm")) %>%
+  ggplot(aes(x = sample, y = cpm)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+pca <- prcomp(t(cpm(combined_dge, log = TRUE)))
+
+pca_plot <- pca$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
+  set_colnames(c("PCa", "PCb")) %>%
+  as.data.frame %>%
+  rownames_to_column("sample_name") %>%
+  left_join((combined_dge$samples %>% rownames_to_column("sample_name")), by="sample_name") %>%
+  ggplot(aes(x=PCa, y = PCb, shape = genotype, colour = as.factor(age))) +
+  geom_point(shape = 1,size = 3.3)+
+  geom_point(alpha = 1,size=3) + 
+  scale_shape_manual(values = c(1,16)) + 
+  #scale_shape_manual(values = c(0,15,1,16,2,17),
+  #                   labels = levels(shape_factor)) +
+  labs(x = "Principal Component 1 (45.97%)", 
+       y = "Principal Component 2 (18.42%)",
+       colour = "Age (Months)", 
+       shape = "Genotype") +
+  theme(aspect.ratio = 1)
+pca_plot
+
+
+```
+
+```{r}
+pca$rotation %>% as.data.frame %>% rownames_to_column("ensembl") %>% dplyr::select(ensembl, PC1) %>%
+  mutate(PC1 = gsub(x = PC1, pattern = "^-", replacement = "")) %>%
+  arrange(desc(PC1))  %>%
+  left_join(combined_dge$genes%>%rownames_to_column("ensembl")) %>%
+  dplyr::rename(PC1_contribution = PC1) %>%
+  head(100) %>% write_csv("~/Downloads/pc1_genes.csv")
+```
+
+
+```{r fig.width=11, fig.height=12}
+genes_of_interest <- combined_dge$genes %>% rownames_to_column("ensembl") %>% dplyr::filter(external_gene_name %in% c("psen1", "psen2") |
+                                     grepl("hif",external_gene_name))
+genes_of_interest$ensembl
+
+
+combined_dge %>% cpm(log = TRUE) %>%   as.data.frame %>%
+  rownames_to_column("ensembl") %>% 
+  dplyr::filter(ensembl %in% genes_of_interest$ensembl) %>%
+  melt %>%
+  left_join(genes_of_interest %>% dplyr::select(ensembl, external_gene_name)) %>%
+  set_colnames(c("ensembl", "sample", "cpm", "gene_name")) %>%
+  left_join(combined_dge$samples, by = c("sample"="newSampleName")) %>% 
+  ggplot(aes(x = as.factor(age), y = cpm, colour = genotype)) + 
+  geom_boxplot()+
+  geom_point(position = position_jitterdodge()) +
+  facet_wrap(~gene_name,scales = "free_y") +
+  theme(aspect.ratio = 1) +
+  labs(x = "Age in months", y = "Gene expression in cpm")
+```
+
+
+
+```{r}
+
+```
+
+
+
+```{r}
+colnames(k97_dge$counts) <- k97_dge$samples$id
+rownames(k97_dge$samples) <- k97_dge$samples$id
+k97_dge$samples %<>% dplyr::rename(genotype = psen1)
+k97_dge$samples %<>% dplyr::mutate(genotype = gsub(x = genotype, pattern = "K97Gfs", replacement = "K97fs"))
+
+```
+
+```{r}
+old_k97_dge$samples %<>% mutate(genotype = gsub(x = group, pattern = "P", replacement = "NM"),
+                                genotype = gsub(x = genotype, pattern = "K", replacement = "K97"))
+
+old_k97_dge$samples %<>% arrange(genotype)
+old_k97_dge$samples %<>% mutate(id = paste0("45mth_", genotype, "_", rep(1:6,2)))
+colnames(old_k97_dge$counts) <- old_k97_dge$samples$id
+rownames(old_k97_dge$samples) <- old_k97_dge$samples$id
+old_k97_dge$samples
+```
+
+```{r}
+combined_counts <- k97_dge$counts
+```
+
+
+## Boxplots
+
+```{r}
+
+```
+

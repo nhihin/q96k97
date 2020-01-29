@@ -103,7 +103,8 @@ samples %<>% dplyr::select(description.1,
                           title, 
                           starts_with("age"),
                           starts_with("genotype"),
-                          starts_with("tissue"))  %>% 
+                          starts_with("tissue"),
+                          contains("Sample_characteristics_ch1"))  %>% 
     dplyr::rename(id = description.1,
                 name = title,
                 age = `age:ch1`,
@@ -488,13 +489,27 @@ l2m <- leadingEdges %>% lapply(fromList)
 ```{r}
 upset_ire3all <- upset(l2m$ire3_all,
       nintersects = NA,
+      empty.intersections = TRUE,
       sets = c("effectOfMutation_3mth", 
                "effectOfMutation_6mth",
                "effectOfMutation_12mth",
                "effectOfAging_12vs6",
                "effectOfAging_6vs3",
                "effectOfAging_12vs3"),
-      keep.order = TRUE)
+      #keep.order = TRUE
+      # intersections = list(
+      #   list("effectOfMutation_3mth"),
+      #   list("effectOfMutation_6mth"),
+      #   list("effectOfMutation_12mth"),
+      #   list("effectOfAging_12vs6"),
+      #   list("effectOfAging_6vs3"),
+      #   list("effectOfAging_12vs3"),
+      #   list("effectOfMutation_3mth", "effectOfMutation_6mth"),
+      #   list("effectOfMutation_6mth", "effectOfMutation_12mth"),
+      #   list("effectOfMutation_3mth", "effectOfMutation_12mth"),
+      #   list("effectOfMutation_3mth", "effectOfMutation_6mth", "effectOfAging_6vs3")
+      # )
+      )
 upset_ire3all
 ```
 ```{r}
@@ -504,14 +519,43 @@ export::graph2ppt(upset_ire3all, here::here("R/Mouse/fig/upset_ire3all"))
 
 
 ```{r}
-upset(l2m$ire5_all)
+upset_ire5all <- upset(l2m$ire5_all,
+      nintersects = NA,
+      sets = c("effectOfMutation_3mth", 
+               "effectOfMutation_6mth",
+               "effectOfMutation_12mth",
+               "effectOfAging_12vs6",
+               "effectOfAging_6vs3",
+               "effectOfAging_12vs3"),
+      keep.order = TRUE)
+upset_ire5all
+```
+```{r}
+export::graph2ppt(upset_ire5all, here::here("R/Mouse/fig/upset_ire5all"))
+```
+
+
+
+```{r}
+upset(l2m$ire3_hq,
+      nintersects = NA,
+      sets = c("effectOfMutation_3mth", 
+               "effectOfMutation_6mth",
+               "effectOfMutation_12mth",
+               "effectOfAging_12vs6",
+               "effectOfAging_6vs3",
+               "effectOfAging_12vs3"),
+      keep.order = TRUE)
 ```
 
 ```{r}
-upset(l2m$ire3_hq)
-```
-
-```{r}
-upset(l2m$ire5_hq)
+upset(l2m$ire5_hq,nintersects = NA,
+      sets = c("effectOfMutation_3mth", 
+               "effectOfMutation_6mth",
+               "effectOfMutation_12mth",
+               "effectOfAging_12vs6",
+               "effectOfAging_6vs3",
+               "effectOfAging_12vs3"),
+      keep.order = TRUE)
 ```
 

@@ -223,6 +223,18 @@ saveRDS(ireSets, here::here("R/Mouse/data/mouse_ireSets.rds"))
 ### 2.1. Import data
 
 ```{r}
+library(arrayQuality)
+```
+
+```{r}
+files <-  list.files("~/Documents/GitHub/q96k97/R/Mouse/data/ps1/", full.names = FALSE) %>% .[2:4]
+
+readGPR(fnames = "~/Documents/GitHub/q96k97/R/Mouse/data/ps1/Res_V52_Cy5_27_PS1_12MvsCy3_24_WT_12M_23-03-10.gpr")
+```
+
+
+
+```{r}
 
 f <- function(x) as.numeric(x$Flags > -75)
 mouseData <- list.files(here::here("R/Mouse/data/ps1"), full.names = TRUE) %>% 
@@ -254,9 +266,9 @@ files <- read.maimages(
 )
 
 test <- limma::read.maimages(here::here("R/Mouse/data/ps1/2_Res_V52_Cy5_27_PS1_12MvsCy3_24_WT_12M_23-03-10.gpr"), 
-                             source = "genepix.custom",
-                             columns = c(R = "F633 Mean", G = "F543 Mean", Rb = "B633 Median", Gb = "F543 Median") )
-```
+                             source = "genepix",
+                             columns = c(R = "F633 Median", G = "F543 Median", Rb = "B633 Median", Gb = "F543 Median") )
+o```
 
 ```{r}
 mouseData <- list.files(here::here("R/Mouse/data/ps1"), full.names = TRUE) %>% 

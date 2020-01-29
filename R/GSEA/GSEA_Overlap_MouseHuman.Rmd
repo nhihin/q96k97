@@ -196,9 +196,9 @@ c7_mapped_m <- readRDS(file.path(genesetsDir, "ens_c7_mapped_m.rds"))
 ## 2. Import IRE gene set
 
 ```{r}
-mouseIreGenes_h<-readRDS(here::here("R/humanIreGenes/data/mouseIreGenes_h.rds"))
-humanIreGenes<-readRDS(here::here("R/humanIreGenes/data/humanIreGenes.rds"))
-zebrafishIreGenes_h<-readRDS(here::here("R/humanIreGenes/data/zebrafishIreGenes_h.rds"))
+mouseIreGenes_h<-readRDS(here::here("R/IREGenes/data/mouseIreGenes_h.rds"))
+humanIreGenes<-readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
+zebrafishIreGenes_h<-readRDS(here::here("R/IREGenes/data/zebrafishIreGenes_h.rds"))
 ```
 
 ## 3. Human: Overlap with GSEA Analysis 

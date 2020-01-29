@@ -104,4 +104,9 @@ source(here("R","GSEA","combinedGSEA.R"))
 gseaResults_hre_without_ire <- combinedGSEA(v, idx_ire_without_hre, design, contrasts)
 gseaResults_hre_without_ire <- readRDS(here::here("R/IREGenes/data/gseaResults_hre_without_ire.rds"))
 gseaResults_hre_without_ire$combTest
+
+gseaResults_hre_without_ire$combTest %>% 
+  bind_rows%>%
+  dplyr::rename(comparison = id) %>%
+  write_csv(here::here("R/GSEA/data/ire_enrichment_without_hres.csv"))
 ```

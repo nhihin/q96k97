@@ -300,6 +300,8 @@ print(B, vp  = vp2)
 ```{r}
 dge <- dge[keepTheseGenes,,keep.lib.sizes = FALSE] 
 # saveRDS(dge, here("R","DE","data","dge_g_filtered.rds"))
+
+dge <- readRDS(here::here("R","DE","data","dge_g_filtered.rds"))
 ```
 
 ### 4.2. Transcript level filtering

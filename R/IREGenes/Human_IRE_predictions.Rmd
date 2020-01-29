@@ -248,6 +248,8 @@ pander(sapply(ireSets, length))
 
 ```{r}
 # saveRDS(ireSets, here("R/IREGenes/data/human_ireSets.rds"))
+
+human_ireSets <- readRDS(here::here("R/IREGenes/data/human_ireSets.rds"))
 ```
 
 ## 2. Import human sAD dataset
@@ -264,7 +266,7 @@ pander(sapply(ireSets, length))
 
 ### 2.2. Data Import and Pre-processing
 
-- First we wmport the gene counts and sample tables for the cerebellum (CBE) and temporal cortex (TCX) samples:
+- First we import the gene counts and sample tables for the cerebellum (CBE) and temporal cortex (TCX) samples:
 
 ```{r}
 data_mayo <- list(
@@ -396,6 +398,25 @@ Principal component analysis of the combined TCX and CBE samples:
 - **ApoE** genotype does have an affect on gene expression, although this is much less than tissue. 
 - **Diagnosis** appears to have a minor effect on gene expression. 
 - **Sex** and **Source** (laboratory) do not have a major effect on gene expression. 
+
+```{r}
+pca <- mergedCounts %>% cpm(log = TRUE) %>% t %>% prcomp
+
+pca_plot <- pca$x %>% magrittr::extract(, c("PC1", "PC2"))%>%
+  as.data.frame() %>%
+  set_colnames(c("PCa", "PCb")) %>%
+  rownames_to_column("SampleID")  %>%
+  left_join(mergedSamples, by = "SampleID") %>%
+  ggplot(aes(x = PCa, y = PCb, colour = Tissue, shape = Diagnosis)) +
+  geom_point(alpha = 0.5, size=3) +
+  theme(aspect.ratio = 1) + 
+  labs(x = "Principal Component 1 (45.8%)", y = "Principal Component 2 (6.9%)") +
+  theme_bw() +
+  scale_shape_manual(values = c(15,16,17,18))
+
+pca_plot %>% graph2ppt(here::here("R/IREGenes/fig/human_mayo_pca"))
+```
+
 
 ```{r}
 humanIreGenes <- readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
@@ -912,6 +933,147 @@ utr3_deGenes_sig$Cerebellum_ADvsControl %>% dplyr::select(Genes.external_gene_na
 ```
 
 
+## 6. UpSet Plots
+
+We are using UpSet plots to show the overlap between different subsets of 
+enriched IRE genes under different conditions / comparisons. 
+
+First, we extract the leading edge genes from the *fgsea* results:
+
+```{r}
+leadingEdge_ire3all <- gseaResults_humanIREs$indivTest %>% lapply(function(x){
+  x$fgsea %>% 
+    dplyr::arrange(Geneset)
+ x$fgsea$leadingEdge[[1]]
+})
+
+leadingEdge_ire5all <- gseaResults_humanIREs$indivTest %>% lapply(function(x){
+  x$fgsea %>% 
+    dplyr::arrange(Geneset)
+ x$fgsea$leadingEdge[[2]]
+})
+
+leadingEdge_ire3hq <- gseaResults_humanIREs$indivTest %>% lapply(function(x){
+  x$fgsea %>% 
+    dplyr::arrange(Geneset)
+ x$fgsea$leadingEdge[[3]]
+})
+
+leadingEdge_ire5hq <- gseaResults_humanIREs$indivTest %>% lapply(function(x){
+  x$fgsea %>% 
+    dplyr::arrange(Geneset)
+ x$fgsea$leadingEdge[[4]]
+})
+
+leadingEdges <- list(
+  ire3_all = leadingEdge_ire3all,
+  ire5_all = leadingEdge_ire5all,
+  ire3_hq = leadingEdge_ire3hq,
+  ire5_hq = leadingEdge_ire5hq
+)
+
+str(leadingEdges)
+```
+
+We convert this list of lists object into a matrix of overlaps using **UpSetR**. 
+
+```{r}
+library(UpSetR)
+l2m <- leadingEdges %>% lapply(fromList)
+```
+
+The UpSet plots can now be plotted as follows:
+
+- **Tissue effect**: IRE enrichment for temporal cortex vs cerebellum in different conditions. 
+
+Vast majority of IRE genes contributing to enrichment in temporal cortex vs. cerebellum are consistent. 
+
+```{r}
+tissueEffect_upset_3 <- upset(l2m$ire3_all,
+      sets = c("AD_TissueEffect",
+               "PA_TissueEffect",
+               "PSP_TissueEffect",
+               "Control_TissueEffect"),
+      #sets = colnames(l2m$ire3_all),
+      keep.order = TRUE)
+tissueEffect_upset_3
+```
+```{r}
+export::graph2ppt(tissueEffect_upset_3, here::here("R/IREGenes/fig/UpSet2/tissueEffect_upset_3"))
+```
+
+
+```{r}
+tissueEffect_upset_5 <- upset(l2m$ire5_all,
+      sets = c("AD_TissueEffect",
+               "PA_TissueEffect",
+               "PSP_TissueEffect",
+               "Control_TissueEffect"),
+      #sets = colnames(l2m$ire3_all),
+      keep.order = TRUE)
+tissueEffect_upset_5
+export::graph2ppt(tissueEffect_upset_5, here::here("R/IREGenes/fig/UpSet2/tissueEffect_upset_5"))
+```
+
+
+Because of vast differences between brain tissues, it makes more sense to look at each tissue individually. 
+
+**Cerebellum**:
+
+```{r}
+cerebellum_upset_3 <- upset(l2m$ire3_all,
+      sets = c("Cerebellum_ADvsControl",
+               "Cerebellum_PAvsControl",
+               "Cerebellum_PSPvsControl"),
+      #sets = colnames(l2m$ire3_all),
+      keep.order = TRUE)
+cerebellum_upset_3
+export::graph2ppt(cerebellum_upset_3, here::here("R/IREGenes/fig/UpSet2/cerebellum_upset_3"))
+```
+
+```{r}
+cerebellum_upset_5 <- upset(l2m$ire5_all,
+      sets = c("Cerebellum_ADvsControl",
+               "Cerebellum_ADvsPA",
+               "Cerebellum_ADvsPSP",
+               "Cerebellum_PAvsControl",
+               "Cerebellum_PSPvsControl"),
+      #sets = colnames(l2m$ire3_all),
+      keep.order = TRUE)
+cerebellum_upset_5
+export::graph2ppt(cerebellum_upset_5, here::here("R/IREGenes/fig/UpSet2/cerebellum_upset_5"))
+```
+
+**Temporal cortex**
+
+```{r}
+TemporalCortex_upset_3 <- upset(l2m$ire3_all,
+      sets = c("TemporalCortex_ADvsControl",
+               "TemporalCortex_ADvsPA",
+               "TemporalCortex_ADvsPSP",
+               "TemporalCortex_PAvsControl",
+               "TemporalCortex_PSPvsControl"),
+      #sets = colnames(l2m$ire3_all),
+      keep.order = TRUE)
+TemporalCortex_upset_3
+export::graph2ppt(TemporalCortex_upset_3, here::here("R/IREGenes/fig/UpSet2/TemporalCortex_upset_3"))
+```
+
+```{r}
+TemporalCortex_upset_5 <- upset(l2m$ire5_all,
+      sets = c("TemporalCortex_ADvsControl",
+               "TemporalCortex_ADvsPA",
+               "TemporalCortex_ADvsPSP",
+               "TemporalCortex_PAvsControl",
+               "TemporalCortex_PSPvsControl"),
+      #sets = colnames(l2m$ire3_all),
+      keep.order = TRUE)
+TemporalCortex_upset_5
+export::graph2ppt(TemporalCortex_upset_5, here::here("R/IREGenes/fig/UpSet2/TemporalCortex_upset_5"))
+```
+
+
+## Notes / TODO
 
 - Comparison between human and zebrafish IREs. Discussion point strrict vs IRE-like. 
 

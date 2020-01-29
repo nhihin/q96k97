@@ -1,0 +1,256 @@
+---
+title: "Iron Depletion effect on cell lines"
+output: html_notebook
+---
+
+```{r include = FALSE}
+library(GEOquery)
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(here)
+library(AnnotationHub)
+```
+
+## 0. Introduction
+
+The purpose of this analysis is to examine gene expression data from a pure 
+cell line that has undergone iron depletion, and see what's happening 
+in terms of IRE gene enrichment. 
+
+We will be using a dataset from GEO with accession number 
+[GSE32369](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE32369). 
+The title of this study is *Effect of iron chelators on global gene 
+expression pattern in SW480 cells*, where the SW480 cell line is derived from 
+colon cancer. Unfortunately I couldn't find any 
+RNA-seq datasets so this one is also a microarray dataset 
+
+The summary of the dataset is:
+
+<blockquote>
+Gene expression analysis of SW480 cells treated with inhibitor compounds for 
+6 hours. Results provide insights into the role of iron in Wnt signalling 
+and demonstrate that iron depletion is the primary mode of actions of these 
+compounds on Wnt pathway.
+
+SW480 cells were incubated with 10 mM of compounds (OICR623), 
+control (DMSO) and two known iron chelators (DFO and Deferasirox) for 
+6 hours. RNA was extracted and cDNA samples isolated from 2-4 independent 
+experiments were hybridized to the Affymetrix GeneChip® Human Gene 1.0 ST array.
+</blockquote>
+
+The iron chelators DFO and Deferasirox are relevant to our work. 
+
+
+## 1. Data Import
+
+The expression and sample data was imported from GEO as follows:
+
+```{r eval=FALSE}
+counts <- getGEO("GSE32369", GSEMatrix = TRUE)
+
+samples <- counts$GSE32369_series_matrix.txt.gz %>% 
+  phenoData() %>% 
+  pData %>% 
+  as_tibble
+
+counts <- counts$GSE32369_series_matrix.txt.gz %>%
+  exprs() 
+```
+
+Preview the data:
+
+```{r}
+counts %>% as.data.frame %>% rownames_to_column("gene_id") %>% as_tibble
+samples
+```
+
+We will clean up the sample metadata and keep the relevant columns only. 
+
+```{r}
+samples %<>% dplyr::select(title, 
+                          geo_accession,
+                          characteristics_ch1.2) %>% 
+  dplyr::rename(
+    sample = title, 
+    id = geo_accession, 
+    treatment = characteristics_ch1.2
+    ) %>%
+  dplyr::mutate(
+    treatment = gsub(x=treatment,
+                     pattern = "^.* |\\(|\\)", 
+                     replacement=""),
+    treatment = as.factor(treatment)
+  ) %>%
+  dplyr::arrange(treatment) 
+```
+```{r}
+samples
+```
+
+Check the "id" column in `samples` corresponds to the `sampleNames`. 
+```{r}
+sampleNames <- colnames(counts)
+samples$id %in% sampleNames # Are all samples in sample table present in counts samples?
+samples$id == sampleNames # Is the order the same?
+```
+
+The ordering of samples isn't the same across the sample table and the 
+counts matrix, so we'll reorder the counts. 
+```{r}
+counts <- counts[, samples$id]
+```
+```{r}
+sampleNames <- colnames(counts)
+samples$id %in% sampleNames # Are all samples in sample table present in counts samples?
+samples$id == sampleNames # Is the order the same?
+```
+
+
+
+## 2. Analysis
+
+We are really only interested in whether IRE gene enrichment is present. 
+However, to do this, we need to set up a `voom` obect *ala* **limma**. 
+
+### 2.1. Gene annotation
+
+```{r}
+ah <- AnnotationHub()
+ah %>%
+  subset(grepl("sapiens", species)) %>%
+  subset(rdataclass == "EnsDb")
+```
+
+```{r}
+ensDb <- ah[["AH64923"]]
+genes <- genes(ensDb)
+genes <- as.data.frame(genes)
+head(genes)
+
+
+```
+
+```{r}
+rownames(counts) %>% head
+```
+
+Before annotation, we have to map the probe IDs to their annotations. 
+
+```{r}
+probeAnnot <- read_csv("~/Downloads/HuGene-1_0-st-v1.na36.hg19.probeset.csv/HuGene-1_0-st-v1.na36.hg19.probeset.csv", comment = "#")
+```
+```{r}
+head(probeAnnot)
+
+rownames(counts) %in% probeAnnot$transcript_cluster_id %>% sum
+```
+
+```{r}
+genes <- data.frame(transcript_cluster_id = as.numeric(rownames(counts))) %>%
+  left_join(probeAnnot, by = "transcript_cluster_id")
+
+genes %>% tail(10000) %>% View
+```
+
+## 3. Process raw probe intensities
+
+Steps
+
+- Read in raw probe cel file into an `Affybatch` using `read.affybatch()`.
+- Use `expresso` to get from raw probe intensities to expression values. 
+
+```{r}
+
+affybatch <- ReadAffy(celfile.path = here::here("R/IronDepleted/data/GSE32369_RAW"))
+
+normData <- expresso(affybatch, 
+                     bgcorrect.method = "rma", 
+                     normalize.method = "constant", 
+                     pmcorrect.method="pmonly", 
+                     summary.method="avgdiff")
+```
+
+The expression matrix looks like this:
+```{r}
+normData@assayData$exprs %>% head
+```
+
+Add some sample metadata:
+```{r}
+normData@phenoData@data %<>% 
+  rownames_to_column("filename") %>%
+  mutate(id = gsub(x = filename, pattern = ".CEL.gz", replacement = "")) %>%
+  left_join(samples, by="id") %>%
+  dplyr::arrange(treatment) %>%
+  column_to_rownames("filename") 
+```
+
+```{r}
+#library(hugene10stv1cdf)
+library(hugene10sttranscriptcluster.db)
+rownames(counts) %in% keys(hugene10sttranscriptcluster.db) %>% summary
+
+
+annot <- AnnotationDbi::select(
+  x = hugene10sttranscriptcluster.db, 
+  keys = rownames(counts),
+  columns = c("PROBEID", "ENSEMBL", "ENTREZID", "SYMBOL"),
+  keytype = "PROBEID"
+)
+
+all(rownames(counts) %in% annot$PROBEID) #TRUE
+ 
+dup.ids <- annot$PROBEID[duplicated(annot$PROBEID)] %>% 
+  unique %>%
+  sort
+length(dup.ids) #2916
+
+# Example probe
+annot[annot$PROBEID == dup.ids[2], ]
+
+# To collapse down the duplicated genes, we will concatenate 
+# the multiple genes for one probe 
+collapser <- function(x){
+  x %>% unique %>% sort %>% paste(collapse = "|")
+}
+annot <- annot %>% 
+  group_by(PROBEID) %>%
+  summarise_each(funs(collapser)) %>% 
+  ungroup
+# http://biolearnr.blogspot.com/2017/05/bfx-clinic-getting-up-to-date.html
+
+# Filter out rows which don't have ensembl IDs. 
+annot %<>% dplyr::filter(!ENSEMBL == "")
+
+head(annot)
+
+# We also would want to restrict the expression data to these probes:
+exprs <- normData@assayData$exprs %>% as.data.frame %>%
+  rownames_to_column("PROBEID") %>% 
+  dplyr::filter(PROBEID %in% annot$PROBEID) %>%
+  column_to_rownames("PROBEID") %>%
+  magrittr::extract(annot$PROBEID, )
+
+# Check all true
+(rownames(exprs)==annot$PROBEID) %>% summary #TRUE
+
+# add annotation data to the feat
+```
+
+
+
+### 2.2. DGEList
+
+The `samples`, `counts` and `genes` will be stored in a DGEList object 
+for the DE analysis using *limma*. 
+
+```{r}
+dge <- DGEList(
+  counts = counts,
+  samples = samples,
+  genes = genes,
+  remove.zeros = TRUE
+) %>%
+  calcNormFactors("TMM")
+```

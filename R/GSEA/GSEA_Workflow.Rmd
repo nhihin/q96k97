@@ -203,7 +203,8 @@ ireGenes <- list(
   ire5_hq <- ireUtr5 %>% as.data.frame %>% dplyr::filter(quality == "High") %>% use_series("gene_id") %>% unique
 ) %>% set_names(c("ire3_all", "ire5_all", "ire3_hq", "ire5_hq"))
 
-zebrafishIreGenes_withoutHres_idx <- buildGenesetIndex(zebrafishIreGenes_withoutHres)
+#zebrafishIreGenes_withoutHre_idx <- buildGenesetIndex(zebrafishIreGenesWithoutHre)
+#zebrafishIreGenes_withoutHre2_idx <- buildGenesetIndex(zebrafishIreGenesWithoutHre2)
 
 # Create index for limma functions. 
 ireGenes_idx <- buildGenesetIndex(ireGenes)
@@ -227,7 +228,8 @@ We will run the `combinedGSEA()` function for each gene set collection, on the v
 gseaResults_kegg <- combinedGSEA(v, kegg_idx, design, contrasts)
 gseaResults_ire <- combinedGSEA(v, ireGenes_idx, design, contrasts)
 gseaResults_h <- combinedGSEA(v, h_idx, design, contrasts)
-gseaResults_ire_without_hre <- combinedGSEA(v, zebrafishIreGenes_withoutHres_idx, design, contrasts)
+gseaResults_ire_without_hre <- combinedGSEA(v, zebrafishIreGenes_withoutHre_idx, design, contrasts)
+gseaResults_ire_without_hre2 <- combinedGSEA(v, zebrafishIreGenes_withoutHre2_idx, design, contrasts)
 
 
 # Export results
