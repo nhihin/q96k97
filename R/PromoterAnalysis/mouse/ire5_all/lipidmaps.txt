@@ -1,0 +1,15 @@
+TermID	Term	Enrichment	logP	Genes in Term	Target Genes in Term	Fraction of Targets in Term	Total Target Genes	Total Genes	Entrez Gene IDs	Gene Symbols
+FAOmega9AndOthersUnsaturated	Omega-9 and other unsaturated fatty acids biosynthesis pathway	0.0246848128117461	-3.70156709037699	14	3	0.15	20	416	14081,54326,14104	Acsl1,Elovl2,Fasn
+FAOmega3And6Unsaturated	Omega-3 and omega-6 unsaturated fatty acids biosynthesis pathway	0.158455534589859	-1.84228126388843	15	2	0.1	20	416	54326,14081	Elovl2,Acsl1
+FAEicosanoidsCYP	Arachidonic acid metabolism via CYP (Cytochromoe P450) pathway	0.158455534589859	-1.84228126388843	15	2	0.1	20	416	13109,13850	Cyp2j5,Ephx2
+Apoptosis	Apoptosis signaling pathway	0.272943828671101	-1.29848926075131	74	5	0.25	20	416	11652,16177,12122,19084,73914	Akt2,Il1r1,Bid,Prkar1a,Irak3
+SP	Sphingolipids metabolism pathway	0.323068315062947	-1.12989147637995	24	2	0.1	20	416	93898,20397	Cers1,Sgpl1
+PI3K	PI3K/Akt/mTOR signaling pathway	0.464146267844834	-0.767555544006972	92	5	0.25	20	416	56637,67605,17246,19211,11652	Gsk3b,Akt1s1,Mdm2,Pten,Akt2
+PPAR	PPAR (Peroxisome proliferator-activated receptor) signaling pathway	0.659759899124402	-0.415879299354463	45	2	0.1	20	416	14077,14081	Fabp3,Acsl1
+CellCycle	Cell cycle signaling pathway	0.70857475306678	-0.344499716501367	95	4	0.2	20	416	50883,12580,17246,56637	Chek2,Cdkn2c,Mdm2,Gsk3b
+TLR4	TLR4 (Toll-like receptor 4) signaling pathway	0.862149615360983	-0.148326455675418	67	2	0.1	20	416	73914,68652	Irak3,Tab2
+ST	Sterols biosynthesis pathway	1.00000000000223	2.23433197939008e-12	9	0	0	20	416
+FAEicosanoids	Arachidonic acid metabolism pathway	1.00000000000223	2.23433197939008e-12	9	0	0	20	416
+GP	Glycerolipids/Glycerophospholipids metabolism pathway	1.000000000008	7.99741126152726e-12	19	0	0	20	416
+FAEicosanoidsCOX	Arachidonic acid metabolism via COX (Cyclooxygenase) pathway	1.000000000008	7.99741126152726e-12	19	0	0	20	416
+FAEicosanoidsLOX	Arachidonic acid metabolism via LOX (Lipooxygenase) pathway	1.00000000000875	8.74657985416465e-12	20	0	0	20	416

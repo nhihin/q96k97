@@ -1,0 +1,1 @@
+cmd = /Users/nhihin/Documents/GitHub/q96k97/R/IREGenes/data/humanIreGenes_ire5all.txt human /Users/nhihin/Documents/GitHub/q96k97/R/PromoterAnalysis/human/ire5_all -start -1500 -end 200

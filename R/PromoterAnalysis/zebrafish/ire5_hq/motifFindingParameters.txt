@@ -1,0 +1,1 @@
+cmd = /Users/nhihin/Documents/GitHub/q96k97/R/IREGenes/data/ireGenes_ire5hq.txt zebrafish /Users/nhihin/Documents/GitHub/q96k97/R/PromoterAnalysis/zebrafish/ire5_hq -start -1500 -end 200

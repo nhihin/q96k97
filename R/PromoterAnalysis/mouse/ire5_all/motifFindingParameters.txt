@@ -1,0 +1,1 @@
+cmd = /Users/nhihin/Documents/GitHub/q96k97/R/IREGenes/data/mouseIreGenes_ire5all.txt mouse /Users/nhihin/Documents/GitHub/q96k97/R/PromoterAnalysis/mouse/ire5_all -start -1500 -end 200

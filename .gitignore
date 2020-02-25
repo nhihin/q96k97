@@ -25,3 +25,7 @@ R/misc/lachie_network.Rmd
 *.motif
 *.html
 *.idlk
+Pres/cube/Untitled.sketch
+R/IREGenes/data/mayo/voomData.rds
+R/IronDepleted/data/autism_fit.rds
+*.idlk

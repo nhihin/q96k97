@@ -1,0 +1,173 @@
+---
+title: "Promoter Over-representation Analysis Results"
+output: html_notebook
+---
+
+```{r Setup, include=FALSE}
+library(here)
+library(readr)
+library(dplyr)
+library(magrittr)
+```
+
+
+## Zebrafish
+
+- Import in the known motif enrichment results from HOMER:
+
+```{r}
+zebrafish_files <- list.files(here::here("R/PromoterAnalysis/zebrafish"), 
+                              recursive=TRUE, 
+                              pattern="knownResults.txt", 
+                              full.names=TRUE)
+
+zebrafish_file_names <- list.files(here::here("R/PromoterAnalysis/zebrafish"), 
+                              recursive=TRUE, 
+                              pattern="knownResults.txt", 
+                              full.names=FALSE) %>%
+  gsub(x=., pattern = "/knownResults.txt", replacement = "")
+
+zebrafish_files
+zebrafish_file_names
+```
+
+- Bind rows for the four runs using HOMER with the `ire3_all`, `ire5_all`, 
+`ire3_hq` and `ire5_hq` gene sets, and then perform p-value correction on 
+all raw p-values. 
+
+```{r}
+zebrafish_res <- zebrafish_files%>%
+  lapply(read_tsv) %>%
+  set_names(zebrafish_file_names) %>% 
+  bind_rows(.id = "Geneset") %>% 
+  dplyr::rename(pvalue = `P-value`) %>%
+  dplyr::mutate(bon = p.adjust(pvalue, "bonferroni"),
+                fdr = p.adjust(pvalue, "fdr")) %>%
+  dplyr::arrange(fdr)
+```
+
+- As shown in the table below, no zebrafish IRE gene sets are enriched in 
+known zebrafish transcription factor binding motifs (FDR < 0.05). 
+
+```{r}
+head(zebrafish_res, 20) %>% dplyr::select(Geneset, 
+                                          `Motif Name`, 
+                                          Consensus,
+                                          fdr)
+```
+
+
+## Human
+
+- Import in the known motif enrichment results from HOMER:
+
+```{r}
+human_files <- list.files(here::here("R/PromoterAnalysis/human"), 
+                              recursive=TRUE, 
+                              pattern="knownResults.txt", 
+                              full.names=TRUE)
+
+human_file_names <- list.files(here::here("R/PromoterAnalysis/human"), 
+                              recursive=TRUE, 
+                              pattern="knownResults.txt", 
+                              full.names=FALSE) %>%
+  gsub(x=., pattern = "/knownResults.txt", replacement = "")
+
+human_files
+human_file_names
+```
+
+- Bind rows for the four runs using HOMER with the `ire3_all`, `ire5_all`, 
+`ire3_hq` and `ire5_hq` gene sets, and then perform p-value correction on 
+all raw p-values. 
+
+```{r}
+human_res <- human_files%>%
+  lapply(read_tsv) %>%
+  set_names(human_file_names) %>% 
+  bind_rows(.id = "Geneset") %>% 
+  dplyr::rename(pvalue = `P-value`) %>%
+  dplyr::mutate(bon = p.adjust(pvalue, "bonferroni"),
+                fdr = p.adjust(pvalue, "fdr")) %>%
+  dplyr::arrange(fdr)
+```
+
+- No human IRE gene sets are significantly enriched for other TF 
+binding motifs. 
+
+```{r}
+head(human_res, 20) %>% dplyr::select(Geneset, 
+                                          `Motif Name`, 
+                                          Consensus,
+                                          fdr)
+```
+
+
+
+## Mouse
+
+- Import in the known motif enrichment results from HOMER:
+
+```{r}
+mouse_files <- list.files(here::here("R/PromoterAnalysis/mouse"), 
+                              recursive=TRUE, 
+                              pattern="knownResults.txt", 
+                              full.names=TRUE)
+
+mouse_file_names <- list.files(here::here("R/PromoterAnalysis/mouse"), 
+                              recursive=TRUE, 
+                              pattern="knownResults.txt", 
+                              full.names=FALSE) %>%
+  gsub(x=., pattern = "/knownResults.txt", replacement = "")
+
+mouse_files
+mouse_file_names
+```
+
+- Bind rows for the four runs using HOMER with the `ire3_all`, `ire5_all`, 
+`ire3_hq` and `ire5_hq` gene sets, and then perform p-value correction on 
+all raw p-values. 
+
+```{r}
+mouse_res <- mouse_files%>%
+  lapply(read_tsv) %>%
+  set_names(mouse_file_names) %>% 
+  bind_rows(.id = "Geneset") %>% 
+  dplyr::rename(pvalue = `P-value`) %>%
+  dplyr::mutate(bon = p.adjust(pvalue, "bonferroni"),
+                fdr = p.adjust(pvalue, "fdr")) %>%
+  dplyr::arrange(fdr)
+```
+
+- No mouse IRE gene sets are significantly enriched for other TF 
+binding motifs. 
+
+```{r}
+head(mouse_res, 20) %>% dplyr::select(Geneset, 
+                                          `Motif Name`, 
+                                          Consensus,
+                                          fdr)
+```
+
+## Export Results
+
+- The results are exported as an Excel notebook for inclusion in the 
+Supplementary Information. 
+
+```{r}
+results <- list(
+  human = human_res,
+  mouse = mouse_res,
+  zebrafish = zebrafish_res
+)
+
+openxlsx::write.xlsx(results, here("R/PromoterAnalysis/results/results.xlsx"))
+```
+
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
+
