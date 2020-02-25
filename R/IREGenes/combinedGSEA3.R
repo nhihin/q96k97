@@ -90,7 +90,7 @@ combinedGSEA3 <- function(v, idx, design, contrasts, fit){
     lapply(function(x){
       x %>% do.call("rbind", .) %>%
         dplyr::group_by(Geneset) %>%
-        dplyr::summarise(wilkinsonp = metap::wilkinsonp(pval)$p) %>%
+        dplyr::summarise(wilkinsonp = metap::wilkinsonp(pval, r = 2)$p) %>%
         dplyr::mutate(fdr = p.adjust(wilkinsonp, method = "fdr"),
                       bonferroni = p.adjust(wilkinsonp, method = "bonferroni"))%>%
         dplyr::arrange(wilkinsonp)

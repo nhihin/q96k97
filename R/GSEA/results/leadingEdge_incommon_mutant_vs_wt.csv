@@ -1,0 +1,23 @@
+ensembl_gene_id,gene_name,gene_biotype,entrezid,description
+ENSDARG00000000796,nr4a1,protein_coding,431720,"nuclear receptor subfamily 4, group A, member 1 [Source:ZFIN;Acc:ZDB-GENE-040704-11]"
+ENSDARG00000004539,ptgs2a,protein_coding,246227,prostaglandin-endoperoxide synthase 2a [Source:ZFIN;Acc:ZDB-GENE-020530-2]
+ENSDARG00000012671,inhbaa,protein_coding,30072,inhibin subunit beta Aa [Source:ZFIN;Acc:ZDB-GENE-000210-21]
+ENSDARG00000013576,gadd45bb,protein_coding,497646,"growth arrest and DNA-damage-inducible, beta b [Source:ZFIN;Acc:ZDB-GENE-050223-1]"
+ENSDARG00000019130,plk2b,protein_coding,565576,polo-like kinase 2b (Drosophila) [Source:ZFIN;Acc:ZDB-GENE-070720-17]
+ENSDARG00000019307,dusp5,protein_coding,114436,dual specificity phosphatase 5 [Source:ZFIN;Acc:ZDB-GENE-010625-1]
+ENSDARG00000020298,btg2,protein_coding,30079,B-cell translocation gene 2 [Source:ZFIN;Acc:ZDB-GENE-000210-15]
+ENSDARG00000021151,ptpreb,protein_coding,569164,"protein tyrosine phosphatase, receptor type, E, b [Source:ZFIN;Acc:ZDB-GENE-060503-263]"
+ENSDARG00000024759,inhbab,protein_coding,553816,inhibin subunit beta Ab [Source:ZFIN;Acc:ZDB-GENE-050525-2]
+ENSDARG00000030326,efna1a,protein_coding,393569,ephrin-A1a [Source:ZFIN;Acc:ZDB-GENE-040426-1135]
+ENSDARG00000031683,fosab,protein_coding,394198,v-fos FBJ murine osteosarcoma viral oncogene homolog Ab [Source:ZFIN;Acc:ZDB-GENE-031222-4]
+ENSDARG00000040623,fosl2,protein_coding,558921,fos-like antigen 2 [Source:ZFIN;Acc:ZDB-GENE-070209-164]
+ENSDARG00000055751,fosb,protein_coding,492346,FBJ murine osteosarcoma viral oncogene homolog B [Source:ZFIN;Acc:ZDB-GENE-041114-181]
+ENSDARG00000058606,sik1,protein_coding,553465,salt-inducible kinase 1 [Source:ZFIN;Acc:ZDB-GENE-030131-9446]
+ENSDARG00000062478,ackr3a,protein_coding,100000764,atypical chemokine receptor 3a [Source:ZFIN;Acc:ZDB-GENE-070301-5]
+ENSDARG00000074378,junba,protein_coding,407086,"JunB proto-oncogene, AP-1 transcription factor subunit a [Source:ZFIN;Acc:ZDB-GENE-040426-2172]"
+ENSDARG00000075282,irs2b,protein_coding,572001,insulin receptor substrate 2b [Source:ZFIN;Acc:ZDB-GENE-081104-462]
+ENSDARG00000075974,si:dkey-258f14.3,protein_coding,100536757,si:dkey-258f14.3 [Source:ZFIN;Acc:ZDB-GENE-050809-43]
+ENSDARG00000086881,ier2b,protein_coding,100331484,immediate early response 2b [Source:ZFIN;Acc:ZDB-GENE-030131-8244]
+ENSDARG00000094673,rhoab,protein_coding,100006041,"ras homolog gene family, member Ab [Source:ZFIN;Acc:ZDB-GENE-040322-2]"
+ENSDARG00000100515,dusp1,protein_coding,406340,dual specificity phosphatase 1 [Source:ZFIN;Acc:ZDB-GENE-040426-2018]
+ENSDARG00000103483,litaf,protein_coding,431731,lipopolysaccharide-induced TNF factor [Source:ZFIN;Acc:ZDB-GENE-040704-23]
