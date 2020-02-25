@@ -21,3 +21,7 @@ Pres/Presentation1.pptx
 R/misc/lachie_network.nb.html
 R/misc/lachie_network.Rmd
 *.gz
+*.svg
+*.motif
+*.html
+*.idlk

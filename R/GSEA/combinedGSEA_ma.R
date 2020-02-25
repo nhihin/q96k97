@@ -86,17 +86,24 @@ combinedGSEA_ma <- function(exprs, fit, idx, design, contrasts){
       y %<>% dplyr::select(Geneset, pval)
       return(y)
     })
-    return(x)
+    return(x) %>% .[c("fry","fgsea","camera")] 
   }) %>%
-    magrittr::extract(. != "mroast") %>%
     lapply(function(x){
       x %>% do.call("rbind", .) %>%
-        dplyr::group_by(Geneset) %>%
-        dplyr::summarise(wilkinsonp = metap::wilkinsonp(pval)$p) %>%
+        as.data.frame %>%
+        dplyr::group_by(Geneset) }) %>%
+    lapply(function(x){
+      x %>% dplyr::summarise(wilkinsonp = metap::wilkinsonp(pval, r = 1)$p) %>%
         dplyr::mutate(fdr = p.adjust(wilkinsonp, method = "fdr"),
                       bonferroni = p.adjust(wilkinsonp, method = "bonferroni"))%>%
         dplyr::arrange(wilkinsonp)
     })
+    #   %>%
+    #     dplyr::summarise(wilkinsonp = metap::wilkinsonp(pval, r = 1)$p) %>%
+        # dplyr::mutate(fdr = p.adjust(wilkinsonp, method = "fdr"),
+        #               bonferroni = p.adjust(wilkinsonp, method = "bonferroni"))%>%
+        # dplyr::arrange(wilkinsonp)
+    # })
   
   # Perform adjustment for multiple testing
   res4 <- res3 %>% bind_rows(.id = "id") %>%

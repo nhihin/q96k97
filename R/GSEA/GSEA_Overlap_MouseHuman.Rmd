@@ -240,12 +240,12 @@ gs %<>% rowwise() %>% mutate(
   n_with_ire3 = sum(ids %in% humanIreGenes$ire3_all),  # Number of genes in the gene set which have 3' predicted IREs
   n_without_ire3= (n - n_with_ire),
   universe_with_ire3 = sum(human_entrez2Ens$human_ensembl %in% humanIreGenes$ire3_all & !(human_entrez2Ens$human_ensembl %in% ids)), 
-  universe_without_ire3 = (length(human_entrez2Ens$human_ensembl) - universe_with_ire),
+  universe_without_ire3 = (length(human_entrez2Ens$human_ensembl) - universe_with_ire3),
   
   n_with_ire5 = sum(ids %in% humanIreGenes$ire5_all),  # Number of genes in the gene set which have 5' predicted IREs
   n_without_ire5= (n - n_with_ire),
   universe_with_ire5 = sum(human_entrez2Ens$human_ensembl %in% humanIreGenes$ire5_all & !(human_entrez2Ens$human_ensembl %in% ids)), 
-  universe_without_ire5 = (length(human_entrez2Ens$human_ensembl) - universe_with_ire)
+  universe_without_ire5 = (length(human_entrez2Ens$human_ensembl) - universe_with_ire5)
 ) %>% ungroup()
 
 gs
@@ -362,8 +362,10 @@ The following table shows the top 50 gene sets enriched in IRE genesets, ranked 
 ```{r}
 gs %>% ungroup() %>%
   arrange(fisher_p) %>%
-  dplyr::select(geneset, contains("fdr"), n_with_ire, n, starts_with("obs_greater")) %>% 
-  head(50)
+  dplyr::select(geneset, contains("fdr"), n_with_ire, n, starts_with("obs_greater")) 
+
+#gs %>% saveRDS(here::here("R/GSEA/data/ora/human_gs.rds"))
+gs <- readRDS(here::here("R/GSEA/data/ora/human_gs.rds"))
 ```
 
 Sorted by genesets most enriched in 3' IRE genes:
@@ -380,9 +382,9 @@ gs %>% ungroup %>% arrange(fisher_p_5) %>% dplyr::select(geneset, contains("fdr"
 
 The following stacked bar chart shows the overlap between the top ~20 genesets and the predicted-IRE genesets.
 
-```{r fig.width=11,fig.height=8}
+```{r }
 overlapDf <- gs %>% arrange(fisher_p) %>% dplyr::filter(fdr < 0.01 | fdr_3 < 0.01 | fdr_5 < 0.01) %>%
-  slice(1:50) %>%
+  slice(1:15) %>%
   dplyr::filter(obs_greater_than_exp_allIRE == TRUE | obs_greater_than_exp_ire3 == TRUE | obs_greater_than_exp_ire5 == TRUE) %>%
   dplyr::select(geneset, source, n_with_ire3, n_with_ire5, n_without_ire) %>%
   bind_rows(data.frame(
@@ -397,10 +399,21 @@ overlapDf <- gs %>% arrange(fisher_p) %>% dplyr::filter(fdr < 0.01 | fdr_3 < 0.0
   dplyr::mutate(geneset = gsub(x=geneset, pattern = "_", replacement = " ")) %>%
   dplyr::select(-source) %>% melt
 
-overlapPlot <- overlapDf %>% ggplot(aes(x = str_to_title(stringr::str_wrap(geneset, 23)), 
+totals <- overlapDf %>% 
+  dplyr::arrange(geneset) %>% 
+  group_by(geneset) %>% 
+  summarise(sum = sum(value)) %>% 
+  arrange(desc(sum))
+
+
+overlapPlot <- overlapDf %>% 
+  left_join(totals) %>%
+  arrange(desc(sum)) %>%
+  mutate(geneset = factor(geneset, levels = unique(as.character(geneset)))) %>%
+  ggplot(aes(x = str_to_title(stringr::str_wrap(geneset, 28)) %>% factor(., levels = unique(as.character(.))), 
                      y = value, 
                      fill = variable)) + 
-  geom_col() +
+  geom_col(width = 0.4) +
   theme(aspect.ratio = 1.2, 
         axis.text.x =  element_text(size= 35), 
         axis.title.x = element_text(size= 30),
@@ -409,11 +422,159 @@ overlapPlot <- overlapDf %>% ggplot(aes(x = str_to_title(stringr::str_wrap(genes
         legend.title = element_text(size=30),
         axis.text.y = element_text(color = "grey20", size = 13)) + 
   coord_flip() +  # Axis labels too long to be readable so this helps.
-  scale_fill_manual(values=c("#FF0066", "cornflowerblue", "#dddddd"), labels =c("3' IRE", "5' IRE", "No IRE")) +
+  scale_fill_manual(values=c("#e11757", "#3767b3", "#dddddd"), labels =c("3' IRE", "5' IRE", "No IRE")) +
   labs(y = "Number of genes", x = "Gene set", fill = "Gene\nhas\nIRE?") +
   theme_bw()
 
 overlapPlot
 
-export::graph2ppt(overlapPlot, here("R","GSEA","fig","overlapPlot_human"))
+export::graph2ppt(overlapPlot, here("R","GSEA","fig","overlapPlot_human_top15"))
 ```
+
+## 8. Visualisation (network overlap)
+
+- The stacked bar chart doesn't indicate to us whether the IRE genes in 
+each gene set are actually shared or if they're unique. Overlapping sets 
+through Venn diagrams or UpSet plots would be appropriate for showing this, but 
+I'm going to use a network plot for the following reasons:
+
+    - There are ~15 sets which are to be plotted. Although UpSet copes OK with 
+    this, the main point which I want to emphasise is how many IRE genes 
+    are UNIQUE to the predicted IRE gene sets? 
+    - Network layout algorithms can be informative in showing us exactly this 
+    along with giving an appreciation of the scale (e.g. how many genes 
+    are involved relatively in each gene set / are shared). 
+
+- To use Gephi to produce a network plot, we need a **nodes** table and 
+an **edges** table. Here I will produce the nodes table using the top 
+15 gene sets ranked by *p*-value. 
+
+- We will also append the predicted IRE gene sets and the "Hallmark 
+Heme Metabolism" gene set as this one is considered like a "gold standard" and 
+the first point for testing for many as it's included in the Hallmark 
+collection. 
+
+```{r}
+# Include the following top ranked gene sets (~15) in the network 
+nodes <- gs %>% arrange(fisher_p) %>% 
+  dplyr::slice(1:15) %>%
+  dplyr::filter(obs_greater_than_exp_allIRE == TRUE | 
+                  obs_greater_than_exp_ire3 == TRUE | 
+                  obs_greater_than_exp_ire5 == TRUE) %>%
+  ungroup
+
+# Append information about 3' and 5' predicted IRE genesets 
+nodes %<>% bind_rows(
+   tibble(
+     ids = c(list(humanIreGenes$ire3_all, humanIreGenes$ire5_all)),
+     geneset = c("Predicted 3' IRE genes", "Predicted 5' IRE genes"),
+     source = c("sires","sires"),
+     n = c(length(humanIreGenes$ire3_all), length(humanIreGenes$ire5_all))
+   )
+ ) 
+
+# Append the Hallmark Heme Metabolism geneset
+# Although this gene set wasnt significantly enriched in 
+# IRE-containing genes, it is probably the most comprehensive
+# gene set specifically on heme metabolism, and combines info 
+# from various studies. 
+nodes %<>% bind_rows(
+  h_tib %>% filter(geneset == "HALLMARK_HEME_METABOLISM") %>% 
+    mutate(n = length(ids[[1]]))
+ ) 
+
+nodes
+```
+
+- Below, we create a data.frame to hold information about gene intersections 
+from each gene set. 
+
+```{r}
+gsComb <- combn(nodes$geneset, m = 2) %>% 
+  t %>% 
+  as.data.frame %>%
+  set_colnames(c("geneset", "geneset_2b")) %>%
+  left_join(nodes%>%dplyr::select(ids, geneset), by = "geneset") %>%
+  dplyr::rename(geneset_nm = geneset,
+                geneset = geneset_2b) %>%
+  left_join(nodes%>%dplyr::select(ids, geneset), by = "geneset") %>%
+  as_tibble %>%
+  mutate(common_ids = map2(ids.x, ids.y, ~intersect(.x,.y)))
+
+gsComb 
+```
+
+- We can extract genes which appear the most often in genesets as follows:
+
+```{r}
+gsComb$common_ids%>%
+  unlist %>% 
+  table %>% 
+  as.data.frame%>%
+  arrange(desc(Freq)) %>%
+  set_colnames(c("ensembl_gene_id", "freq"))  %>% head
+```
+
+- The final nodes table for gephi will contain
+
+    - All genes in the genesets
+    - The geneset names
+
+```{r}
+pathways <- nodes$geneset %>% as.data.frame %>% set_colnames("label")
+genes <- nodes$ids %>% unlist %>% unique %>% as.data.frame %>% set_colnames("label")
+nodesDf <- full_join(pathways, genes, by = "label") %>% rowid_to_column("id")
+
+# nodesDf %>%
+#   mutate(text = ifelse(id < 18, label, NA)) %>%
+#   mutate(size = ifelse(id < 16, 2, 1)) %>%
+#   mutate(colour = ifelse(id < 16, rainbow(26)[id], NA)) 
+
+head(nodesDf,20)
+
+nodesDf2 <- nodesDf %>%
+  mutate(
+    ire = case_when(
+      id < 16 ~ " ",
+      id == 18 ~ " ",
+      id == 16 ~ "3",
+      id == 17 ~ "5",
+      label %in% humanIreGenes$ire3_all ~ "3",
+      label %in% humanIreGenes$ire5_all ~ "5",
+      !(label %in% allIREGenes) ~ "no IRE"
+    )
+  )%>%
+  dplyr::select(-id) %>% dplyr::rename(Id = label) 
+
+head(nodesDf2, 30) 
+ nodesDf2 %>% write_tsv(here("R","GSEA","data","human_network","nodes.tsv"))
+```
+
+- Edges will be between:
+
+    - The genesets and all genes within the geneset 
+    - Genes in multiple genesets
+
+```{r}
+edgeDf <- nodes$ids %>% set_names(nodes$geneset) %>% plyr::ldply(data.frame) %>% 
+  set_colnames(c("pathway", "gene")) %>%
+  left_join(nodesDf, by = c("pathway"="label")) %>%
+  dplyr::rename(from = id) %>%
+  left_join(nodesDf, by = c("gene"="label")) %>%
+  dplyr::rename(to=id) %>%
+  #dplyr::select(from, to)
+  dplyr::select(pathway, gene) %>%
+  set_colnames(c("Source","Target"))
+edgeDf %>% head(20)
+
+write_tsv(edgeDf, here::here("R/GSEA/data/human_network/edges.tsv"))
+
+```
+
+## 9. Session Info
+
+```{r}
+sessionInfo()
+```
+
+

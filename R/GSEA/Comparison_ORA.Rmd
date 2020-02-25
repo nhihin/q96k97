@@ -1,0 +1,83 @@
+---
+title: "Comparison of IRE ORA from Human, Mouse, and Zebrafish"
+output: html_notebook
+---
+
+```{r}
+library(UpSetR)
+```
+
+
+## Import Results
+
+```{r import-results}
+zebrafishRes <- readRDS("R/GSEA/data/ora/zebrafish_gs.rds")
+mouseRes <- readRDS("R/GSEA/data/ora/mouse_gs.rds")
+humanRes <- readRDS("R/GSEA/data/ora/human_gs.rds")
+```
+
+```{r}
+zebrafishRes_top <- zebrafishRes %>% rowwise() %>% dplyr::arrange(fdr) %>% dplyr::slice(1:1000)
+```
+
+```{r}
+mouseRes_top <- mouseRes %>%  dplyr::arrange(fdr) %>% dplyr::slice(1:1000)
+```
+
+```{r}
+humanRes_top <- humanRes %>% arrange(fdr) %>% dplyr::slice(1:1000)
+```
+
+```{r}
+all_top <- list(zebrafish = zebrafishRes_top$geneset,
+                mouse = mouseRes_top$geneset,
+                human = humanRes_top$geneset)
+
+all_top %<>% fromList()
+```
+
+```{r}
+upset_ire3all <- upset(l2m$ire3_all,
+      nintersects = NA,
+      empty.intersections = TRUE,
+      sets = c("effectOfMutation_3mth", 
+               "effectOfMutation_6mth",
+               "effectOfMutation_12mth",
+               "effectOfAging_12vs6",
+               "effectOfAging_6vs3",
+               "effectOfAging_12vs3"),
+      #keep.order = TRUE
+      # intersections = list(
+      #   list("effectOfMutation_3mth"),
+      #   list("effectOfMutation_6mth"),
+      #   list("effectOfMutation_12mth"),
+      #   list("effectOfAging_12vs6"),
+      #   list("effectOfAging_6vs3"),
+      #   list("effectOfAging_12vs3"),
+      #   list("effectOfMutation_3mth", "effectOfMutation_6mth"),
+      #   list("effectOfMutation_6mth", "effectOfMutation_12mth"),
+      #   list("effectOfMutation_3mth", "effectOfMutation_12mth"),
+      #   list("effectOfMutation_3mth", "effectOfMutation_6mth", "effectOfAging_6vs3")
+      # )
+      )
+upset_ire3all
+```
+
+
+```{r}
+inner_join(zebrafishRes_top[, c("geneset")], mouseRes_top[, c("geneset")]) %>%
+  inner_join(humanRes_top[, c("geneset")]) %>% View
+```
+
+```{r}
+inner_join(zebrafishRes_top[, c("geneset")], mouseRes_top[, c("geneset")]) %>% dim
+```
+
+```{r}
+inner_join(humanRes_top[, c("geneset")], mouseRes_top[, c("geneset")]) %>% dim
+```
+
+```{r}
+inner_join(zebrafishRes_top[, c("geneset")], humanRes_top[, c("geneset")]) %>% dim
+```
+
