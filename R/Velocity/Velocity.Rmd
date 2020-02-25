@@ -1,0 +1,580 @@
+---
+title: "RNA velocity analysis"
+output: html_notebook
+---
+
+```{r load-packages, include=FALSE}
+library(here)
+library(magrittr)
+library(dplyr)
+library(readr)
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(reshape2)
+library(AnnotationHub)
+```
+
+
+## 1. Introduction
+
+RNA velocity analysis explores the changing stability of 
+RNA transcripts. A measure of stability is the ratio 
+mature:unspliced transcripts. If this ratio is high, it would 
+indicate that the transcript is stable, while if the ratio is 
+low it would indicate transcript unstability. 
+
+In terms of our IRE gene sets, we would expect IRE-containing 
+genes that increase in expression to do so because of increased 
+stability. In this analysis, we will explore whether this is 
+the case. 
+
+## 2. Import Data
+
+Normally, when we quantify gene expression, we only quantify the 
+expression of mature transcripts. To include information about the 
+unspliced transcripts, we need to make a version of the reference 
+transcriptome that contains transcripts with their introns as well. 
+This can then be run with *kallisto* to quantify both mature and 
+unspliced transcripts in one run. 
+
+We will import the *kallisto* output from Phoenix using the 
+`catchKallisto` functionality from *edgeR* as follows:
+
+```{r import-data, eval=FALSE}
+# List of directories containing kallisto results
+phoenixDir <- file.path("/Volumes/biohub/20170906_Morgan_Hypoxia")
+kallistoResults <- file.path(phoenixDir, "3_quantifiedData/including_unspliced")%>% 
+  file.path %>%
+  list.dirs 
+kallistoResults <- kallistoResults[-1]
+
+# Import the kallisto results from the list of directories. 
+# importedKallisto <- edgeR::catchKallisto(kallistoResults)
+# importedKallisto %>% saveRDS(file.path(todayDir, "kallistoResults.rds"))
+
+importedKallisto <- readRDS(file.path(todayDir, "kallistoResults.rds"))
+colnames(importedKallisto$counts) <- basename(colnames(importedKallisto$counts))
+```
+```{r preview-kallisto}
+str(importedKallisto)
+```
+
+We can match the sample names in `importedKallisto$counts` to the names used 
+in the rest of the analysis so far. We will do this by importing in the 
+sample metadata from the DGEList prepared in earlier parts of the analysis.
+
+```{r import-dge}
+q96_dge <- readRDS(here::here("R","DE","data","dge_g_filtered.rds"))
+
+samples <- q96_dge$samples %>%
+  mutate(path = basename(path))
+
+# Match the order and replace sample names with more readable ones. 
+counts_new <- importedKallisto$counts[, samples$path] %>% 
+  set_colnames(samples$sample)
+
+head(counts_new)
+```
+
+Ensembl transcript IDs were in the reference transcriptome index when 
+running *kallisto*, so we will also get the annotation mapping transcripts 
+back to gene IDs. 
+
+```{r gene-annotation, eval=FALSE}
+ah <- AnnotationHub()
+ah %>%
+  subset(grepl("rerio", species)) %>%
+  subset(rdataclass == "EnsDb")
+ensDb <- ah[["AH64906"]]
+genes <- genes(ensDb)
+transcripts <- transcripts(ensDb)
+genes <- as.data.frame(genes)
+transcripts <- as.data.frame(transcripts)
+```
+```{r preview-annotation}
+annot <- importedKallisto$annotation %>% 
+  as.data.frame %>%
+  rownames_to_column("tx_id_version") %>%
+  left_join(transcripts, by = "tx_id_version")
+head(annot)
+```
+
+Because we used `catchKallisto`, this has also imported in the 
+overdispersions which we can add to modify the count estimates. 
+We will also place everything in a DGEList for easier organisation.
+
+```{r create-new-dge}
+dge_new <- DGEList(
+  counts = counts_new/importedKallisto$annotation$Overdispersion, 
+  genes = annot,
+  samples = samples
+) %>%
+  calcNormFactors("TMM")
+```
+
+
+## 3. Processing Data
+
+This is a bit messy (sorry) but the idea is to get the spliced and unspliced 
+count estimates for each gene. This involves:
+
+- Summarising from transcript to gene level for unspliced transcripts
+- Summarising from transcript to gene level for spliced transcripts 
+
+
+```{r eval=FALSE}
+# Get data into long form and have a column indicating whether the transcript 
+# is spliced or not. 
+counts_melted <- dge_new$counts %>%
+  as.data.frame %>% 
+  rownames_to_column("tx_id_version") %>% 
+  mutate(unspliced = gsub(x = tx_id_version, pattern = "^.*(_unspliced)$", replacement = "TRUE")) %>% 
+  mutate(unspliced = gsub(x = unspliced, pattern="^ENSDART.*$", replacement= "FALSE")) %>% 
+  mutate(unspliced = as.factor(unspliced)) %>% 
+  inner_join(annot[, c("tx_id_version", "gene_id")]) %>% 
+  melt
+
+counts_melted$ensembl_gene_id[is.na(counts_melted$ensembl_gene_id)] <- counts_melted$tx_id_version[is.na(counts_melted$ensembl_gene_id)]
+
+# extract all spliced transcripts out
+spliced_counts <- counts_melted %>% filter(unspliced == FALSE)
+
+# extract all unspliced transcripts out
+unspliced_counts <- counts_melted %>% filter(unspliced == TRUE) %>%
+  dplyr::mutate(gene_id = gsub(x = tx_id_version, pattern = "_unspliced", replacement =""))
+# There are many more spliced genes than unspliced, so we will filter
+spliced_counts <- spliced_counts %>% dplyr::filter(gene_id %in% unspliced_counts$gene_id)
+
+#  summarise from transcript to gene level
+spliced_counts %<>% 
+    dplyr::rename(sample = variable,
+                count = value) %>% 
+  dcast(gene_id ~ sample,
+        value.var = "count",
+        fun.aggregate = sum)
+
+unspliced_counts %<>%
+  dplyr::rename(sample = variable,
+                count = value) %>% 
+  dcast(gene_id ~ sample,
+        value.var = "count",
+        fun.aggregate = sum)
+unspliced_count
+```
+
+
+## 4.Import in gene sets
+
+Here we read in the IRE gene sets previously defined, and then use these 
+to filter on the count estimates for spliced and unspliced versions of the gene.
+
+```{r}
+ireGenes <- readRDS(here::here("R/IREGenes/data/zebrafishIreGenes.rds"))
+
+extractIreGenes <- function(spliced_df = spliced_counts, unspliced_df = unspliced_counts, genes){
+  spliced_df %<>% dplyr::filter(gene_id %in% genes) %>% melt
+  unspliced_df %<>% dplyr::filter(gene_id %in% genes) %>% melt
+  fulljoin <- full_join(spliced_df, unspliced_df, by = "gene_id") %>%
+    dplyr::filter(variable.x == variable.y) %>%
+    dplyr::select(-variable.y) %>%
+    dplyr::mutate(matureUnsplicedRatio = value.x/value.y)
+  return(fulljoin)
+}
+
+ireGenes_counts <- list(
+  ire3_all = extractIreGenes(genes = ireGenes$ire3_all),
+  ire3_hq = extractIreGenes(genes = ireGenes$ire3_hq),
+  ire5_all = extractIreGenes(genes = ireGenes$ire5_all),
+  ire5_hq = extractIreGenes(genes = ireGenes$ire5_hq)
+)
+
+ireGenes_counts$ire3_all$matureUnsplicedRatio %>% summary
+
+```
+
+We can see that there are some `Inf`s. Taking a closer look at these, these 
+are genes which seem to be detected only when spliced. 
+
+```{r}
+ireGenes_counts$ire3_all %>% filter(matureUnsplicedRatio == Inf) %>% head(20)
+```
+
+In contrast, a mature:unspliced ratio of zero indicates that the gene is only 
+detected in its unspliced version. 
+
+```{r}
+ireGenes_counts$ire3_all %>% filter(matureUnsplicedRatio == 0) %>% head(20)
+```
+
+Lastly we have a bunch of `NA`s, corresponding to genes which were not 
+expressed in their spliced or unspliced versions.
+
+```{r}
+ireGenes_counts$ire3_all %>% filter(is.na(matureUnsplicedRatio)) %>% head(20)
+```
+
+## 5. Genes which are increased or decreased in expression. 
+
+```{r}
+limma_results <- readRDS(here::here("R/DE/data/write_fit_g.rds"))
+```
+
+
+Extract lists of genes which are:
+
+- Increased (t > 2) and has a 3' IRE OR decreased (t < -2) and has a 5' IRE in expression. 
+
+```{r}
+extractresults <- function(coef){
+  limma_results %>% dplyr::select(starts_with("Genes"),
+                                  contains(coef)) %>%
+    set_colnames(c("ensembl_gene_id", "gene_name", "gene_biotype",
+                   "entrezid", "description", "coef", "t", "pvalue",
+                   "fdr", "res")) %>%
+    dplyr::filter(t >= 2 | t <= -2) %>%
+    dplyr::mutate(in_3IREall = ensembl_gene_id %in% ireGenes$ire3_all,
+                  in_5IREall = ensembl_gene_id %in% ireGenes$ire5_all,
+                  in_3irehq = ensembl_gene_id %in% ireGenes$ire3_hq,
+                  in_5irehq = ensembl_gene_id %in% ireGenes$ire5_hq) %>%
+    dplyr::mutate(genetotest = (t >= 2 & in_3IREall==TRUE)) 
+}
+
+extractresults_5 <- function(coef){
+  limma_results %>% dplyr::select(starts_with("Genes"),
+                                  contains(coef)) %>%
+    set_colnames(c("ensembl_gene_id", "gene_name", "gene_biotype",
+                   "entrezid", "description", "coef", "t", "pvalue",
+                   "fdr", "res")) %>%
+    dplyr::filter(t >= 2 | t <= -2) %>%
+    dplyr::mutate(in_3IREall = ensembl_gene_id %in% ireGenes$ire3_all,
+                  in_5IREall = ensembl_gene_id %in% ireGenes$ire5_all,
+                  in_3irehq = ensembl_gene_id %in% ireGenes$ire3_hq,
+                  in_5irehq = ensembl_gene_id %in% ireGenes$ire5_hq) %>%
+    dplyr::mutate(genetotest = (t <= -2 & in_5IREall==TRUE)) 
+}
+
+coefs <- c("normoxia_6mth_mutant_vs_wt", "normoxia_24mth_mutant_vs_wt", 
+           "hypoxia_6mth_mutant_vs_wt", "hypoxia_24mth_mutant_vs_wt",
+           "wt_6mth_hypoxia_vs_normoxia", "mutant_6mth_hypoxia_vs_normoxia",
+           "wt_24mth_hypoxia_vs_normoxia", "mutant_24mth_hypoxia_vs_normoxia",
+           "normoxia_wtAging", "hypoxia_wtAging",
+           "normoxia_mutantAging", "hypoxia_mutantAging")
+
+# 3' ires
+results <- coefs %>% lapply(extractresults)
+names(results) <- coefs
+# 5' ires
+results_5 <- coefs %>% lapply(extractresults_5)
+names(results_5) <- coefs
+
+results_genestotest <- results %>% lapply(function(x){
+  x %>% filter(genetotest == TRUE)
+})
+
+results_genestotest_5 <- results_5 %>% lapply(function(x){
+  x %>% filter(genetotest == TRUE)
+})
+
+str(results_genestotest)
+
+```
+
+Test whether 3' IRE genes that are increased in expression are **stabilised**. 
+
+**In the 6 month normoxia mutant vs. wild-type comparison**:
+
+47 3' IRE genes are stabilised and 24 are unstabilised (not sure how to 
+figure out if it's significant?)
+
+```{r}
+testStability <- function(ireGeneCounts = ireGenes_counts, genestotest, groups){
+  ireGeneCounts %>%
+    dplyr::filter(gene_id %in% genestotest) %>%
+    dplyr::filter(!is.na(matureUnsplicedRatio)) %>%
+    left_join(dge$samples, by = c("variable.x"="sample")) %>%
+    group_by(gene_id, Group) %>%
+    dplyr::summarise(med_mature = median(value.x), 
+                   med_unspliced = median(value.y)) %>% 
+    dplyr::mutate(med_ratio = med_mature/med_unspliced) %>%
+    dplyr::filter(Group %in% groups) %>%
+  dcast(gene_id ~ Group, value.var = "med_ratio") %>% 
+  dplyr::mutate(stabilised = .[[2]] > .[[3]])
+}
+
+stabilityResults_normoxia_6mth_mutant_vs_wt <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$normoxia_6mth_mutant_vs_wt$ensembl_gene_id, 
+                           c("q96_6_0", "wt_6_0")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$normoxia_6mth_mutant_vs_wt$ensembl_gene_id, 
+                           c("q96_6_0", "wt_6_0"))
+)
+
+stabilityResults_normoxia_6mth_mutant_vs_wt$ire3_all$stabilised %>% table
+stabilityResults_normoxia_6mth_mutant_vs_wt$ire5_all$stabilised %>% table
+```
+
+**In the 24 month normoxia mutant vs. wild-type comparison**:
+
+```{r}
+stabilityResults_normoxia_24mth_mutant_vs_wt <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$normoxia_24mth_mutant_vs_wt$ensembl_gene_id, 
+                           c("q96_24_0", "wt_24_0")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$normoxia_24mth_mutant_vs_wt$ensembl_gene_id, 
+                           c("q96_24_0", "wt_24_0"))
+)
+
+stabilityResults_normoxia_24mth_mutant_vs_wt$ire3_all$stabilised %>% table
+stabilityResults_normoxia_24mth_mutant_vs_wt$ire5_all$stabilised %>% table
+```
+
+**In the 6 month HYPOXIA mutant vs. wild-type comparison**:
+
+```{r}
+stabilityResults_hypoxia_6mth_mutant_vs_wt <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$hypoxia_6mth_mutant_vs_wt$ensembl_gene_id, 
+                           c("q96_6_1", "wt_6_1")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$hypoxia_6mth_mutant_vs_wt$ensembl_gene_id, 
+                           c("q96_6_1", "wt_6_1"))
+)
+
+stabilityResults_hypoxia_6mth_mutant_vs_wt$ire3_all$stabilised %>% table
+stabilityResults_hypoxia_6mth_mutant_vs_wt$ire5_all$stabilised %>% table
+```
+
+**In the 24 month HYPOXIA mutant vs. wild-type comparison**:
+
+```{r}
+stabilityResults_hypoxia_24mth_mutant_vs_wt <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$hypoxia_24mth_mutant_vs_wt$ensembl_gene_id, 
+                           c("q96_24_1", "wt_24_1")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$hypoxia_24mth_mutant_vs_wt$ensembl_gene_id, 
+                           c("q96_24_1", "wt_24_1"))
+)
+
+stabilityResults_hypoxia_24mth_mutant_vs_wt$ire3_all$stabilised %>% table
+stabilityResults_hypoxia_24mth_mutant_vs_wt$ire5_all$stabilised %>% table
+```
+
+**In the 6 month hypoxia vs normoxia in wild-types comparison**
+
+```{r}
+stabilityResults_wt_6mth_hypoxia_vs_normoxia <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$wt_6mth_hypoxia_vs_normoxia$ensembl_gene_id, 
+                           c("wt_6_1", "wt_6_0")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$wt_6mth_hypoxia_vs_normoxia$ensembl_gene_id, 
+                           c("wt_6_1", "wt_6_0"))
+)
+
+stabilityResults_wt_6mth_hypoxia_vs_normoxia$ire3_all$stabilised %>% table
+stabilityResults_wt_6mth_hypoxia_vs_normoxia$ire5_all$stabilised %>% table
+
+```
+
+**In the 6 month hypoxia vs normoxia in mutants comparison**
+
+```{r}
+stabilityResults_mutant_6mth_hypoxia_vs_normoxia <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$mutant_6mth_hypoxia_vs_normoxia$ensembl_gene_id, 
+                           c("q96_6_1", "q96_6_0")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$mutant_6mth_hypoxia_vs_normoxia$ensembl_gene_id, 
+                           c("q96_6_1", "q96_6_0"))
+)
+
+stabilityResults_mutant_6mth_hypoxia_vs_normoxia$ire3_all$stabilised %>% table
+stabilityResults_mutant_6mth_hypoxia_vs_normoxia$ire5_all$stabilised %>% table
+```
+
+**In the wt_24mth_hypoxia_vs_normoxia comparison**:
+
+```{r}
+stabilityResults_wt_24mth_hypoxia_vs_normoxia <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$wt_24mth_hypoxia_vs_normoxia$ensembl_gene_id, 
+                           c("wt_24_1", "wt_24_0")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$wt_24mth_hypoxia_vs_normoxia$ensembl_gene_id, 
+                           c("wt_24_1", "wt_24_0"))
+)
+
+stabilityResults_wt_24mth_hypoxia_vs_normoxia$ire3_all$stabilised %>% table
+stabilityResults_wt_24mth_hypoxia_vs_normoxia$ire5_all$stabilised %>% table
+```
+
+**In the mutant_24mth_hypoxia_vs_normoxia comparison**
+
+```{r}
+stabilityResults_mutant_24mth_hypoxia_vs_normoxia <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$mutant_24mth_hypoxia_vs_normoxia$ensembl_gene_id, 
+                           c("q96_24_1", "q96_24_0")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$mutant_24mth_hypoxia_vs_normoxia$ensembl_gene_id, 
+                           c("q96_24_1", "q96_24_0"))
+)
+
+stabilityResults_mutant_24mth_hypoxia_vs_normoxia$ire3_all$stabilised %>% table
+stabilityResults_mutant_24mth_hypoxia_vs_normoxia$ire5_all$stabilised %>% table
+```
+
+**In the normoxia_wtAging comparison**:
+```{r}
+stabilityResults_normoxia_wtAging <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$normoxia_wtAging$ensembl_gene_id, 
+                           c("wt_24_0", "wt_6_0")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$normoxia_wtAging$ensembl_gene_id, 
+                           c("wt_24_0", "wt_6_0"))
+)
+
+stabilityResults_normoxia_wtAging$ire3_all$stabilised %>% table
+stabilityResults_normoxia_wtAging$ire5_all$stabilised %>% table
+```
+
+**In the hypoxia_wtAging comparison:**
+```{r}
+stabilityResults_hypoxia_wtAging <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$hypoxia_wtAging$ensembl_gene_id, 
+                           c("wt_24_1", "wt_6_1")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$hypoxia_wtAging$ensembl_gene_id, 
+                           c("wt_24_1", "wt_6_1"))
+)
+
+stabilityResults_hypoxia_wtAging$ire3_all$stabilised %>% table
+stabilityResults_hypoxia_wtAging$ire5_all$stabilised %>% table
+```
+
+**In the normoxia_mutantAging comparison**:
+```{r}
+stabilityResults_normoxia_mutantAging <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$normoxia_mutantAging$ensembl_gene_id, 
+                           c("q96_24_0", "q96_6_0")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$normoxia_mutantAging$ensembl_gene_id, 
+                           c("q96_24_0", "q96_6_0"))
+)
+
+stabilityResults_normoxia_mutantAging$ire3_all$stabilised %>% table
+stabilityResults_normoxia_mutantAging$ire5_all$stabilised %>% table
+```
+
+**in the hypoxia_mutantAging comparison**
+```{r}
+stabilityResults_hypoxia_mutantAging <- list(
+  ire3_all = testStability(ireGenes_counts$ire3_all, 
+                           results_genestotest$hypoxia_mutantAging$ensembl_gene_id, 
+                           c("q96_24_1", "q96_6_1")),
+  ire5_all = testStability(ireGenes_counts$ire5_all, 
+                           results_genestotest_5$hypoxia_mutantAging$ensembl_gene_id, 
+                           c("q96_24_1", "q96_6_1"))
+)
+
+stabilityResults_hypoxia_mutantAging$ire3_all$stabilised %>% table
+stabilityResults_hypoxia_mutantAging$ire5_all$stabilised %>% table
+```
+
+## 6. Results
+
+```{r}
+stabilityResults <- list(
+  normoxia_6mth_mutant_vs_wt = stabilityResults_normoxia_6mth_mutant_vs_wt,
+  normoxia_24mth_mutant_vs_wt = stabilityResults_normoxia_24mth_mutant_vs_wt,
+  hypoxia_6mth_mutant_vs_wt = stabilityResults_hypoxia_6mth_mutant_vs_wt,
+  hypoxia_24mth_mutant_vs_wt = stabilityResults_hypoxia_24mth_mutant_vs_wt,
+  wt_6mth_hypoxia_vs_normoxia = stabilityResults_wt_6mth_hypoxia_vs_normoxia,
+  mutant_6mth_hypoxia_vs_normoxia = stabilityResults_mutant_6mth_hypoxia_vs_normoxia,
+  wt_24mth_hypoxia_vs_normoxia = stabilityResults_wt_24mth_hypoxia_vs_normoxia,
+  mutant_24mth_hypoxia_vs_normoxia = stabilityResults_mutant_24mth_hypoxia_vs_normoxia,
+  normoxia_wtAging = stabilityResults_normoxia_wtAging,
+  hypoxia_wtAging = stabilityResults_hypoxia_wtAging,
+  normoxia_mutantAging = stabilityResults_normoxia_mutantAging,
+  hypoxia_mutantAging = stabilityResults_hypoxia_mutantAging
+)
+
+stabilityResults2 <- stabilityResults %>% lapply(function(x){
+  x$ire3_all %<>%
+    dplyr::left_join(., genes[, c("gene_id","gene_name")], by = "gene_id") %>%
+    dplyr::filter(!is.na(stabilised), .[[2]]!=Inf, .[[3]]!=Inf)
+  
+  x$ire5_all %<>%
+    dplyr::left_join(., genes[, c("gene_id","gene_name")], by = "gene_id") %>%
+    dplyr::filter(!is.na(stabilised), .[[2]]!=Inf, .[[3]]!=Inf)
+  
+  return(x)
+})
+
+# saveRDS(stabilityResults, here::here("R/Velocity/data/stabilityResults.rds"))
+```
+
+## 7. Visualisation
+
+Thinking a dumbbell plot might be worth trying out. 
+
+```{r fig.width=5,fig.height=10}
+stabilityResults2$normoxia_6mth_mutant_vs_wt$ire3_all %>%
+  mutate(gene_id = as.factor(gene_id)) %>%
+  ggplot(aes(x = wt_6_0, xend = q96_6_0, y = gene_name, group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                colour_xend = "red",
+                colour = "cornflowerblue",
+                size_x = 3) + 
+  scale_x_continuous() +
+  labs(x=NULL, 
+             y=NULL) +
+        theme(plot.title = element_text(hjust=0.5, face="bold"),
+              aspect.ratio = 1,
+              panel.grid.minor=element_blank(),
+              panel.grid.major.y=element_blank(),
+              panel.grid.major.x=element_line(),
+              axis.ticks=element_blank(),
+              legend.position="top",
+              panel.border=element_blank(),
+              axis.text.y = element_text(lineheight = 10,size = 6))
+  
+```
+
+
+
+```{r}
+devtools::install_github("hrbrmstr/ggalt")
+library(ggplot2)
+library(ggalt)
+
+health <- read.csv("https://raw.githubusercontent.com/selva86/datasets/master/health.csv")
+health$Area <- factor(health$Area, levels=as.character(health$Area))  # for right ordering of the dumbells
+
+
+gg <- ggplot(health, aes(x=pct_2013, xend=pct_2014, y=Area, group=Area)) + 
+        geom_dumbbell(colour_x="#a3c4dc", 
+                      colour_xend="red",
+                      colour = "#a3c4dc",
+                      size_x = 3,
+                      size=0.75) + 
+        scale_x_continuous() + 
+        labs(x=NULL, 
+             y=NULL) +
+        theme(plot.title = element_text(hjust=0.5, face="bold"),
+              panel.grid.minor=element_blank(),
+              panel.grid.major.y=element_blank(),
+              panel.grid.major.x=element_line(),
+              axis.ticks=element_blank(),
+              legend.position="top",
+              panel.border=element_blank())
+plot(gg)
+```
+
