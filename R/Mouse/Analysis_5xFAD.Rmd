@@ -70,7 +70,7 @@ from the GEO accession
 [GSE140286](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE140286).
 
 ```{r}
-counts <- here::here("R/Mouse/data/GSE140286_FAD_time_series_rnaseq_raw_count.txt") %>%
+counts <- here("R/Mouse/data/GSE140286_FAD_time_series_rnaseq_raw_count.txt") %>%
   read_tsv
 
 counts
@@ -175,9 +175,9 @@ We will retrieve the gene annotation from Ensembl release 94 as follows.
 
 ```{r}
 ah <- AnnotationHub()
-ah %>%
-  subset(grepl("musculus", species)) %>%
-  subset(rdataclass == "EnsDb")
+# ah %>%
+#   subset(grepl("musculus", species)) %>%
+#   subset(rdataclass == "EnsDb")
 ensDb <- ah[["AH64944"]]
 genes <- genes(ensDb)
 genes <- as.data.frame(genes)
@@ -211,6 +211,11 @@ dge <- DGEList(
 ) %>%
   calcNormFactors("TMM")
 ```
+```{r}
+# dge %>% saveRDS(here("R/Mouse/data/dge.rds"))
+```
+
+
 
 Preview the DGEList and the normalisation factors calculated:
 ```{r}
@@ -258,6 +263,8 @@ pca_plot <- pca$x %>% magrittr::extract(, c("PC1", "PC2")) %>%
   
 
 pca_plot
+
+# pca_plot %>% export::graph2pdf(here("R/Mouse/fig/pca"))
 ```
 
 
@@ -386,6 +393,7 @@ gseaResults_mouse_h %>% saveRDS(file.path(dataDir, "gseaResults_mouse_h.rds"))
 ```
 
 
+
 #### 2.2.1. Results
 
 Import in the saved R objects:
@@ -426,6 +434,153 @@ gseaResults_mouse_h$combTest$effectOfAging_12vs3
 gseaResults_mouse_h$combTest$effectOfAging_12vs6
 gseaResults_mouse_h$combTest$effectOfAging_6vs3
 ```
+
+###### Butterfly Plot
+
+```{r fig.width=18}
+# extract up/downregulated gene proportions from mroast
+x_props <- gseaResults_mouse_h$indivTest$effectOfMutation_3mth$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="effectOfMutation_3mth",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+x_props2 <- gseaResults_mouse_ire$indivTest$effectOfMutation_3mth$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="effectOfMutation_3mth",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+x_props <- bind_rows(x_props, x_props2)
+x_fry_with_props <- x_props
+
+# join to fry results
+x_fry_with_props <- gseaResults_mouse_h$indivTest$effectOfMutation_3mth$fry %>%
+  dplyr::filter(FDR.Mixed < 0.05) %>%
+  dplyr::select(Geneset) %>%
+  left_join(x_props)
+
+
+# extract proportions from mroast
+y_props <- gseaResults_mouse_h$indivTest$effectOfMutation_6mth$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="effectOfMutation_6mth",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+y_props2 <- gseaResults_mouse_ire$indivTest$effectOfMutation_6mth$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="effectOfMutation_6mth",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+y_props <- bind_rows(y_props, y_props2)
+
+# join to fry results
+# y_fry_with_props <- gseaResults_mouse_h$indivTest$effectOfMutation_6mth$fry %>%
+#   #dplyr::filter(FDR.Mixed < 0.05) %>%
+#   dplyr::select(Geneset) %>%
+#   left_join(y_props)
+
+y_fry_with_props <- y_props
+
+####### slightly dodge but OK 
+z_props <- gseaResults_mouse_h$indivTest$effectOfMutation_12mth$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="effectOfMutation_12mth",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+z_props2 <- gseaResults_mouse_ire$indivTest$effectOfMutation_12mth$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="effectOfMutation_12mth",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+z_props <- bind_rows(z_props, z_props2)
+z_fry_with_props <- z_props
+
+# join to fry results
+# z_fry_with_props <- gseaResults_mouse_h$indivTest$effectOfMutation_12mth$fry %>%
+#   #dplyr::filter(FDR.Mixed < 0.05) %>%
+#   dplyr::select(Geneset) %>%
+#   left_join(z_props)
+
+z_fry_with_props
+
+
+
+# create the plot
+# adapted from https://stackoverflow.com/questions/4559229/drawing-pyramid-plot-using-r-and-ggplot2
+butterfly <- bind_rows(x_fry_with_props, y_fry_with_props, z_fry_with_props) %>%
+  dplyr::mutate(Geneset = gsub(x = Geneset, pattern = "_", replacement = " "),
+                Geneset = gsub(x = Geneset, pattern = "HALLMARK", replacement = "")) %>%
+  reshape2::melt(id.vars=c("Geneset","NGenes","contrast")) %>%
+  dplyr::arrange(desc(NGenes)) %>% 
+  dplyr::rename(direction = variable, ngenes = value) %>%
+  dplyr::mutate(Geneset = factor(Geneset, levels = unique(Geneset)),
+                direction = factor(direction, levels = c("notSig", "down", "up")),
+                contrast = factor(contrast, levels = c("effectOfMutation_3mth","effectOfMutation_6mth", "effectOfMutation_12mth"))) %>%
+  ggplot(aes(x = Geneset, y = ngenes, fill = direction)) +
+  geom_col(width=0.6) +
+  facet_wrap(~contrast, scales = "free") +
+  #ggpol::facet_share(~contrast, scales = "free", strip.position = "left") +
+  scale_fill_manual(values=c("#DDDDDD","cornflowerblue","#FE4365"))+
+  coord_flip() +
+  theme(axis.line.y = element_blank())
+
+
+
+butterfly
+
+export::graph2ppt(butterfly, here("R/Mouse/fig/butterfly_effectOfMutation"))
+
+
+
+
+
+```
+
+```{r fig.width = 11, fig.height = 2}
+butterfly2 <- bind_rows(x_props2, y_props2, z_props2) %>%
+  dplyr::mutate(Geneset = gsub(x = Geneset, pattern = "_", replacement = " "),
+                Geneset = gsub(x = Geneset, pattern = "HALLMARK", replacement = "")) %>%
+  reshape2::melt(id.vars=c("Geneset","NGenes","contrast")) %>%
+  dplyr::arrange(desc(NGenes)) %>% 
+  dplyr::rename(direction = variable, ngenes = value) %>%
+  dplyr::mutate(Geneset = factor(Geneset, levels = unique(Geneset)),
+                direction = factor(direction, levels = c("notSig", "down", "up")),
+                contrast = factor(contrast, levels = c("effectOfMutation_3mth","effectOfMutation_6mth", "effectOfMutation_12mth"))) %>%
+  ggplot(aes(x = Geneset, y = ngenes, fill = direction)) +
+  geom_col(width=0.6) +
+  facet_wrap(~contrast, scales = "free") +
+  #ggpol::facet_share(~contrast, scales = "free", strip.position = "left") +
+  scale_fill_manual(values=c("#DDDDDD","cornflowerblue","#FE4365"))+
+  coord_flip() +
+  theme(axis.line.y = element_blank())
+butterfly2
+
+export::graph2ppt(butterfly2, here("R/Mouse/fig/butterfly_ire_effectOfMutation"))
+```
+
 
 ##### IRE 
 

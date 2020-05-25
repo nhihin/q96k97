@@ -102,18 +102,19 @@ zebEns <- org.Dr.egENSEMBL %>%
   as.data.frame %>%
   set_colnames(c("zeb_entrezgene", "zeb_ensembl"))
 
-# Create a data.frame to map between human entrezgenes and zebrafish ensembl IDs.
+# Create a data.frame to map between human entrezgenes & zebrafish ensembl IDs.
 # BioMart only includes homolog mappings for ensembl IDs which is why we need to 
 # retrieve human ensembl IDs, then join to the humanEntrezEns data.frame,
 # in order to get the desired human entrezgenes to zebrafish ensembl ID mapping. 
-zebMart <- useMart("ENSEMBL_MART_ENSEMBL", "drerio_gene_ensembl")
+zebMart <- useMart("ensembl", "drerio_gene_ensembl")
 getFromBiomart <- c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene")
-zebAndHumanEnsGenes <- getBM(getFromBiomart, values = unique(zebEns$zeb_ensembl), mart = zebMart) %>%
+zebAndHumanEnsGenes <- getBM(getFromBiomart, 
+                             values = unique(zebEns$zeb_ensembl), 
+                             mart = zebMart) %>%
   set_colnames(c("zebrafish_ensembl", "human_ensembl")) %>%
   left_join(humanEntrezEns, by = "human_ensembl") %>%
   dplyr::select(-human_ensembl) %>% 
   dplyr::filter(complete.cases(.))
-
 ```
 
 This mapping in `zebAndHumanEnsGenes` contains `r (zebAndHumanEnsGenes %>% lapply(function(x){x%>%unique%>%length}))[[1]]` zebrafish Ensembl IDs to `r (zebAndHumanEnsGenes %>% lapply(function(x){x%>%unique%>%length}))[[2]]` human entrezgene IDs. 
@@ -578,6 +579,12 @@ gseaResults_h2 <- combinedGSEA2(v, h_idx, design, contrasts)
 # gseaResults_ire2 %>% saveRDS(file.path(resultsDir, "gseaResults_ire2.rds"))
 # gseaResults_h2 %>% saveRDS(file.path(resultsDir, "gseaResults_h2.rds"))
 ```
+```{r}
+gseaResults_h2 <- readRDS(file.path(resultsDir, "gseaResults_h2.rds"))
+gseaResults_ire2 <- readRDS(file.path(resultsDir, "gseaResults_ire2.rds"))
+```
+
+
 
 Rankings for mroast and fry are similar, but fry ones are smaller, likely due to the infinite rotations. 
 ```{r}

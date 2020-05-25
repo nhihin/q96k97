@@ -8,6 +8,7 @@ library(here)
 library(readr)
 library(dplyr)
 library(magrittr)
+here::set_here(path="~/Documents/GitHub/q96k97")
 ```
 
 
@@ -40,9 +41,11 @@ zebrafish_res <- zebrafish_files%>%
   lapply(read_tsv) %>%
   set_names(zebrafish_file_names) %>% 
   bind_rows(.id = "Geneset") %>% 
-  dplyr::rename(pvalue = `P-value`) %>%
-  dplyr::mutate(bon = p.adjust(pvalue, "bonferroni"),
-                fdr = p.adjust(pvalue, "fdr")) %>%
+  dplyr::rename(pvalue = `P-value`,
+                logpvalue = `Log P-value`) %>%
+  dplyr::mutate(pvalue2 = exp(logpvalue)) %>%
+  dplyr::mutate(bon = p.adjust(pvalue2, "bonferroni"),
+                fdr = p.adjust(pvalue2, "fdr")) %>%
   dplyr::arrange(fdr)
 ```
 

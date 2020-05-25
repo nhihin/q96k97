@@ -1,0 +1,203 @@
+---
+title: "Stability of already biologically confirmed genes with IREs"
+output: html_notebook
+---
+
+```{r}
+library(AnnotationHub)
+```
+
+
+## 1. Biologically confirmed genes with IREs
+
+- Confirmed via immunoprecipitation 
+
+- Bind both IRP1 and IRP2
+
+- List of novel mRNAs that are bound by IRP1 and IRP2 from 
+[Figure 2 in Sanchez et al. (2011)](https://ashpublications.org/blood/article/118/22/e168/29216/Iron-regulatory-protein-1-and-2-transcriptome-wide)
+
+```{r known-IRE-genes}
+novIRE <- c("Ftl1",
+            "Tfrc",
+            "Lrpap1",
+            "Slc40a1",
+            "Aco2",
+            "Ftl2",
+            "Slc11a2",
+            "0610007L01Rik",
+            "Ccdc45",
+            "Epas1",
+            "Cxcl16",
+            "Fxyd5",
+            "Ormdl1",
+            "Gyg",
+            "Garnl1",
+            "Egr2", 
+            "A430093A21Rik",
+            "Alas2",
+            "Fth1",
+            "Pfn2",
+            "8430410A17Rik",
+            "Trp53inp2",
+            "Kcnf1",
+            "Hao1",
+            "Mkrn1",
+            "Gstm6",
+            "Pdcl3",
+            "Pex12",
+            "Al45035",
+            "Arfip2",
+            "BC051227",
+            "Ppp1r1b",
+            "Gstt3",
+            "D5Ertd255e",
+            "Dlg2",
+            "Lnx1",
+            "Lsm12",
+            "Pabpc4l",
+            "4930579E17Rik",
+            "Dhx32",
+            "Ankrd29",
+            "Dirc2",
+            "Nr4a3",
+           "2010107G12Rik",
+            "Pyroxd1")
+length(novIRE)
+novIRE
+```
+
+- Search for these gene names in the human / mouse reference.
+
+- First we retrieve the Ensembl release 94 annotation for human and mouse. 
+
+```{r}
+ah <- AnnotationHub()
+ # ah %>%
+ #   subset(grepl("sapiens", species)) %>%
+ #   subset(rdataclass == "EnsDb")
+ensDb_human <- ah[["AH64923"]]  # Ensembl release 94
+ensDb_mouse <- ah[["AH64944"]]  # Ensembl release 94
+ensDb_zeb <- ah[["AH64906"]]
+
+genes <- list(
+  human = genes(ensDb_human) %>% as.data.frame,
+  mouse = genes(ensDb_mouse) %>% as.data.frame,
+  zeb = genes(ensDb_zeb) %>% as.data.frame
+)
+
+genes$human %>% head
+```
+
+- The gene names in `novIRE` look like mouse gene symbols, so we will 
+try filtering through `genes$mouse` to look for these IRE genes. 
+
+```{r}
+novIRE_mouse <- genes$mouse %>% 
+  dplyr::filter(grepl(paste(novIRE, collapse="|"), symbol))
+
+nrow(novIRE_mouse)
+```
+
+- We recover `r nrow(novIRE_mouse)` mouse genes from the original list. 
+
+- The human genes look like they are in all caps so as an initial test 
+we will just convert the names to uppercase and see if they are in 
+`genes$human`. 
+
+```{r}
+novIRE_human <- genes$human %>% 
+  dplyr::filter(grepl(paste(toupper(novIRE), collapse="|"), symbol),
+                gene_biotype == "protein_coding") 
+
+nrow(novIRE_human)
+```
+
+- We recover `r nrow(novIRE_human)` mouse genes from the original list. 
+
+- Zebrafish is trickier. We need to use BioMart to get the orthologs. 
+
+```{r}
+library(biomaRt)
+ens_mouse <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+ens_zeb<- useMart("ensembl", dataset = "drerio_gene_ensembl")
+
+novIRE_zeb <- getBM(attributes = c("drerio_homolog_ensembl_gene", "drerio_homolog_chromosome"),
+                    filters = "ensembl_gene_id",
+                    values = novIRE_mouse$gene_id, 
+                    mart = ens_mouse) %>%
+  set_colnames(c("gene_id", "seqnames")) %>%
+  dplyr::filter(gene_id != "")
+
+novIRE_zeb
+```
+
+
+## 2. Did SIREs predict an IRE?
+
+- Import the IRE gene sets:
+
+```{r}
+# zebrafishIreGenes <- readRDS(here::here("R/IREGenes/data/zebrafishIreGenes.rds"))
+humanIreGenes<-readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
+mouseIreGenes <- readRDS(here::here("R/Mouse/data/mouse_ireSets.rds"))
+zebrafishIreGenes <- readRDS(here::here("R/IREGenes/data/zebrafishIreGenes.rds"))
+```
+
+- Overall, SIREs did not recover many of the known IREs. 
+
+```{r}
+novIRE_human_pred <- lapply(humanIreGenes, function(x){ 
+  novIRE_human %>% dplyr::filter(gene_id %in% x)
+}) 
+
+novIRE_human_notpred <- lapply(humanIreGenes, function(x){
+  novIRE_human %>% dplyr::filter(!(gene_id %in% x))
+})  
+
+
+novIRE_human_pred
+
+###
+
+novIRE_mouse_pred <- lapply(mouseIreGenes, function(x){
+  novIRE_mouse %>% dplyr::filter(gene_id %in% x)
+})
+
+novIRE_mouse_notpred <- lapply(mouseIreGenes, function(x){
+  novIRE_mouse %>% dplyr::filter(!(gene_id %in% x))
+}) 
+
+novIRE_mouse_pred
+
+###
+
+novIRE_zebrafish_pred <- lapply(zebrafishIreGenes, function(x){
+  novIRE_zeb %>% dplyr::filter(gene_id %in% x)
+})
+
+novIRE_zebrafish_notpred <- lapply(zebrafishIreGenes, function(x){
+  novIRE_zeb %>% dplyr::filter(!(gene_id %in% x))
+}) 
+
+
+novIRE_zebrafish_pred
+
+```
+
+## 3. Stability in our datasets
+
+```{r}
+human_dge <- readRDS(here("R/GSEA/data/human/mayo_DGE.rds"))
+
+mouse_dge <- readRDS(here("R/Mouse/data/dge.rds"))
+```
+
+In order to check the stability, I need to have the introns also included in 
+there too. 
+
+```{r}
+
+```
+
+

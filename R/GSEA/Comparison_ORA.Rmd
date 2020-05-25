@@ -5,16 +5,83 @@ output: html_notebook
 
 ```{r}
 library(UpSetR)
+library(metap)
 ```
 
 
 ## Import Results
 
 ```{r import-results}
-zebrafishRes <- readRDS("R/GSEA/data/ora/zebrafish_gs.rds")
-mouseRes <- readRDS("R/GSEA/data/ora/mouse_gs.rds")
-humanRes <- readRDS("R/GSEA/data/ora/human_gs.rds")
+zebrafishRes <- readRDS(here("R/GSEA/data/ora/zebrafish_gs.rds"))
+mouseRes <- readRDS(here("R/GSEA/data/ora/mouse_gs.rds"))
+humanRes <- readRDS(here::here("R/GSEA/data/ora/human_gs.rds"))
+
+combinedRes <- data.frame(
+  geneset = zebrafishRes$geneset,
+  source = zebrafishRes$source,
+  zeb_p = zebrafishRes$fisher_p,
+  zeb_p3 = zebrafishRes$fisher_p_3,
+  zeb_p5 = zebrafishRes$fisher_p_5
+) %>%
+  inner_join(mouseRes[c("geneset", "fisher_p", "fisher_p_3", "fisher_p_5")] %>%
+              dplyr::rename(mouse_p = fisher_p, mouse_p3 = fisher_p_3, mouse_p5 = fisher_p_5),
+            by="geneset") %>%
+  inner_join(humanRes[c("geneset", "fisher_p", "fisher_p_3", "fisher_p_5")] %>%
+              dplyr::rename(human_p = fisher_p, human_p3 = fisher_p_3, human_p5 = fisher_p_5),
+            by="geneset") %>%
+  rowwise() %>% 
+  mutate(
+    wilk_p = wilkinsonp(c(zeb_p, mouse_p, human_p), r=2)$p,
+    wilk_p3 = wilkinsonp(c(zeb_p3, mouse_p3, human_p3), r=2)$p,
+    wilk_p5 = wilkinsonp(c(zeb_p5, mouse_p5, human_p5), r=2)$p
+  ) %>%
+  ungroup() %>%
+  mutate(
+    wilk_adj = p.adjust(wilk_p, "bonferroni"),
+    wilk_adj3 = p.adjust(wilk_p3, "bonferroni"),
+    wilk_adj5 = p.adjust(wilk_p5, "bonferroni")
+  )
+dim(combinedRes)
+
+sigRes <- combinedRes %>% 
+  dplyr::filter(wilk_adj < 0.05 | wilk_adj3 < 0.05 | wilk_adj5 < 0.05)
+dim(sigRes)  # 1,148 of 10,427 gene sets have significant over-representation of IRE genes
+
+sigRes %>% View
+
+# saveRDS(combinedRes, here("R/GSEA/data/combinedRes.rds"))
+# saveRDS(sigRes, here("R/GSEA/data/sigRes.rds"))
+
+combinedRes <- readRDS(here::here("R/GSEA/data/combinedRes.rds"))
+sigRes <- readRDS(here::here("R/GSEA/data/sigRes.rds"))
+
+sigRes %>% colnames
+
+sigRes %>% write.csv(here::here("Manuscript/Supp_Tables/S1_OverRepresentation.csv"))
 ```
+
+```{r}
+sigRes %>% View
+```
+
+
+
+
+
+
+
+
+
+```{r}
+wilkinsonp(zebrafishRes)
+```
+
+
+
+
+
+
+
 
 ```{r}
 zebrafishRes_top <- zebrafishRes %>% rowwise() %>% dplyr::arrange(fdr) %>% dplyr::slice(1:1000)
@@ -37,30 +104,12 @@ all_top %<>% fromList()
 ```
 
 ```{r}
-upset_ire3all <- upset(l2m$ire3_all,
-      nintersects = NA,
-      empty.intersections = TRUE,
-      sets = c("effectOfMutation_3mth", 
-               "effectOfMutation_6mth",
-               "effectOfMutation_12mth",
-               "effectOfAging_12vs6",
-               "effectOfAging_6vs3",
-               "effectOfAging_12vs3"),
-      #keep.order = TRUE
-      # intersections = list(
-      #   list("effectOfMutation_3mth"),
-      #   list("effectOfMutation_6mth"),
-      #   list("effectOfMutation_12mth"),
-      #   list("effectOfAging_12vs6"),
-      #   list("effectOfAging_6vs3"),
-      #   list("effectOfAging_12vs3"),
-      #   list("effectOfMutation_3mth", "effectOfMutation_6mth"),
-      #   list("effectOfMutation_6mth", "effectOfMutation_12mth"),
-      #   list("effectOfMutation_3mth", "effectOfMutation_12mth"),
-      #   list("effectOfMutation_3mth", "effectOfMutation_6mth", "effectOfAging_6vs3")
-      # )
-      )
-upset_ire3all
+upset_top <- upset(all_top,
+                   nintersects = NA,
+                   empty.intersections = TRUE)
+upset_top
+
+upset_top %>% export::graph2ppt(here::here("R/GSEA/fig/ora_comparison"))
 ```
 
 

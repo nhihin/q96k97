@@ -80,7 +80,9 @@ unfortunately.
 
 **Summary of the study**:
 <blockquote>
-We investigated transcriptional response of CaCo-2 cells to iron treatments, we studied hemin effect by adding hemin to DMEM-FBS medium and iron deficiency effects in using an iron free medium compared to the same supplemented with FAC (ferric ammonium citrate).
+We investigated transcriptional response of CaCo-2 cells to iron treatments, we studied 
+hemin effect by adding hemin to DMEM-FBS medium and iron deficiency effects in using an iron free medium compared to the same supplemented with FAC 
+(ferric ammonium citrate).
 Keywords: various iron treatment, differential gene expression, hemin treatment, iron-free
 </blockquote>
 
@@ -243,6 +245,7 @@ fitresults <- write_fit(fit, results) %>%
                                    GENE_SYMBOL,
                                    GENE_NAME, 
                                    ENSEMBL_ID), by = "NAME")
+# saveRDS(fitresults, here("R/IronDepleted/data/cellLine_3573/fitresults.rds"))
 
 vennCounts(results)
 
@@ -259,7 +262,7 @@ volcanoplot(fit, coef= "IronOverload")
 treatments. 
 
 ```{r volcano-plots}
-# iron overload
+# iron overload 
 volcanoPlot_ironOverload <- fitresults %>% 
   dplyr::select(NAME, Coef.IronOverload, 
                 p.value.IronOverload,
@@ -279,7 +282,7 @@ volcanoPlot_ironOverload <- fitresults %>%
                 color = "#555555", size=1) +
   theme(legend.position = "none",
         aspect.ratio = 1)
-volcanoPlot_ironOverload %>% graph2pdf(here::here("R/IronDepleted/fig/volcanoPlot_ironOverload"))
+#volcanoPlot_ironOverload %>% graph2pdf(here::here("R/IronDepleted/fig/volcanoPlot_ironOverload"))
 
 
 # iron deficiency
@@ -302,7 +305,7 @@ volcanoPlot_ironDeficiency <- fitresults %>%
                 color = "#555555", size=1) +
   theme(legend.position = "none",
         aspect.ratio = 1)
-volcanoPlot_ironDeficiency %>% export::graph2pdf(here::here("R/IronDepleted/fig/volcanoPlot_ironDeficiency"))
+#volcanoPlot_ironDeficiency %>% export::graph2pdf(here::here("R/IronDepleted/fig/volcanoPlot_ironDeficiency"))
 
 ```
 ```{r}
@@ -338,7 +341,7 @@ datET <- exprs %>%
   rownames_to_column("NAME") %>%
   left_join(annot, by = "NAME") %>% 
   mutate(GENE = as.character(GENE)) %>%
-  left_join(gene2trans, by = c("GENE"="ENTREZ")) %>%
+  left_join(gene2trans, by = c("GENE"="ENTREZ")) %>% 
   dplyr::filter(ENSEMBL != "" | !is.na(ENSEMBL)) %>%
   dplyr::distinct(ENSEMBL, .keep_all = TRUE) %>%
   set_rownames(.$ENSEMBL)
@@ -354,7 +357,7 @@ colExprs <- datET[,2:13]
  dim(colExprs)  #  7,793 genes remaining
 
 colAnnot <- data.frame(ENSEMBL = rownames(colExprs)) %>%
-  left_join(annot, by = "ENSEMBL") %>%
+  left_join(annot, by = c("ENSEMBL"="ENSEMBL.x")) %>%
   dplyr::distinct(ENSEMBL, .keep_all = TRUE)
 
 newFit <- lmFit(colExprs, design) %>%
@@ -365,6 +368,17 @@ results <- decideTests(newFit,
                        p.value = 0.05, 
                        adjust.method = "fdr",
                        method = "global")
+
+write_fit <- write_fit(newFit, results = results)
+#write_fit %>% saveRDS(here::here("R/IronDepleted/data/cellLine_3573/write_fit.rds"))
+genesSamplesCounts <- list(
+  genes = colAnnot,
+  samples = samples,
+  counts = colExprs
+) 
+#genesSamplesCounts %>% saveRDS(here::here("R/IronDepleted/data/cellLine_3573/genesSamplesCounts.rds"))
+#exprs %>% saveRDS(here::here("R/IronDepleted/data/cellLine_3573/exprs.rds"))
+#annot %>% saveRDS(here::here("R/IronDepleted/data/cellLine_3573/annot.rds"))
 
 results %>% summary()
 ```
@@ -379,6 +393,16 @@ gene sets together.
 
 source(here::here("R/GSEA/combinedGSEA_ma.R"))
 humanIreGenes <- readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
+
+genesList <- write_fit %>% rownames_to_column("gene") %>%
+  dplyr::mutate(
+  ire = case_when(
+    gene %in% humanIreGenes$ire3_all ~ "has_3ire",
+    gene %in% humanIreGenes$ire5_all ~ "has_5ire"
+  )
+) %>% 
+  dplyr::filter(ire == "has_3ire",
+                t.IronDeficiency > 2 | t.IronOverload > 2) 
 
 genesetsDir <- here::here("R", "GSEA", "data", "human")
 h_mapped <- readRDS(file.path(genesetsDir, "ens_h_mapped.rds"))
@@ -402,7 +426,7 @@ hEnr <- combinedGSEA_ma(colExprs,
                           fit = newFit, 
                           design = design, 
                           contrasts = contrasts, 
-                          idx = combinedIdx)
+                          idx = humanHallmarkIdx)
 # Results
 ireEnr
 hEnr
@@ -410,6 +434,9 @@ hEnr
 # Export
 ireEnr %>% saveRDS(here::here("R/IronDepleted/data/GSE3573_ireEnr.rds"))
 hEnr %>% saveRDS(here::here("R/IronDepleted/data/GSE3573_hEnr.rds"))
+
+ireEnr <- readRDS(here::here("R/IronDepleted/data/GSE3573_ireEnr.rds"))
+hEnr <- readRDS(here::here("R/IronDepleted/data/GSE3573_hEnr.rds"))
 ```
 
 ### 5.1. Butterfly plot
@@ -474,7 +501,58 @@ butterfly <- bind_rows(x_fry_with_props, y_fry_with_props) %>%
 
 butterfly
 
-export::graph2ppt(butterfly, here("R/IronDepleted/fig/butterfly"))
+# export::graph2ppt(butterfly, here("R/IronDepleted/fig/butterfly"))
+```
+
+Butterfly plotfor the IRE genes only
+
+```{r}
+# extract up/downregulated gene proportions from mroast
+x_props <- ireEnr$indivTest$IronOverload$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="IronOverload",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+# extract proportions from mroast
+y_props <- ireEnr$indivTest$IronDeficiency$mroast %>% 
+  dplyr::select(Geneset, NGenes, PropUp, PropDown) %>% 
+  dplyr::mutate(contrast="IronDeficiency",
+                up = NGenes * PropUp,
+                down = NGenes * PropDown,
+                notSig = NGenes - up - down
+  ) %>%
+  dplyr::select(-PropUp, -PropDown)
+
+
+# create the plot
+# adapted from https://stackoverflow.com/questions/4559229/drawing-pyramid-plot-using-r-and-ggplot2
+butterfly <- bind_rows(x_props, y_props) %>%
+  dplyr::mutate(Geneset = gsub(x = Geneset, pattern = "_", replacement = " "),
+                Geneset = gsub(x = Geneset, pattern = "HALLMARK", replacement = "")) %>%
+  reshape2::melt(id.vars=c("Geneset","NGenes","contrast")) %>%
+  dplyr::arrange(desc(NGenes)) %>% 
+  dplyr::rename(direction = variable, ngenes = value) %>%
+  dplyr::mutate(Geneset = factor(Geneset, levels = unique(Geneset)),
+                direction = factor(direction, levels = c("notSig", "down", "up")),
+                contrast = factor(contrast, levels = c("IronOverload","IronDeficiency"))) %>%
+  ggplot(aes(x = Geneset, y = ngenes, fill = direction)) +
+  geom_col(width=0.6) +
+  ggpol::facet_share(~contrast, scales = "free") +
+  scale_fill_manual(values=c("#DDDDDD","cornflowerblue","#FE4365"))+
+  #coord_flip(ylim=c(0,300)) +
+  coord_flip() + 
+  theme(axis.line.y = element_blank(), aspect.ratio = 0.5)
+
+
+butterfly
+
+saveRDS(butterfly, here("R/IronDepleted/fig/butterfly_ireEnr.rds"))
+
+export::graph2ppt(butterfly, here("R/IronDepleted/fig/butterfly_ireEnr.rds"))
 ```
 
 

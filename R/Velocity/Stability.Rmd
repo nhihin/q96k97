@@ -13,6 +13,7 @@ library(dplyr)
 library(AnnotationHub)
 library(ggplot2)
 library(ggalt)
+library(grid)
 theme_set(theme_bw())
 
 write_fit <- function(fit, results=NULL, F.adjust="none", adjust="fdr", method="global", ...) {
@@ -246,6 +247,7 @@ B <- dge %>%
   ggtitle("B. After filtering")+
   labs(x = "logCPM", y = "Density")
 
+
 grid.newpage()
 vp1 <- viewport(x = 0, y = 0, width = 0.5, height = 1, just = c(0, 0))
 vp2 <- viewport(x = 0.5, y = 0, width = 0.5, height = 1, just = c(0,0))
@@ -416,11 +418,13 @@ indivResults <- coefs %>%
                    "logfc_mature", "logfc_unspliced")) %>%
     dplyr::mutate(diff = logfc_mature - logfc_unspliced,
                   stabilised = diff > 0) %>%
-    dplyr::filter(coef > 0 & t >= 2 & id %in% ireGenes$ire3_all) 
+    #dplyr::filter(coef > 0 & t >= 2) %>%
+      dplyr::mutate(has3ire = id %in% ireGenes$ire3_all,
+                    has5ire = id %in% ireGenes$ire5_all)
 })
 names(indivResults) <- coefs
 
-indivResults %>% lapply()
+
 ```
 ```{r}
 View(indivResults$normoxia_6mth_mutant_vs_wt)
@@ -450,23 +454,23 @@ The results below indicate whether 3' IRE-containing genes that are
 increased in expression are significantly more stable in each comparison.
 
 ```{r}
-tests <- indivResults %>% lapply(function(x) {
-  wilcox.test(x$logfc_mature, 
-              x$logfc_unspliced, 
-              paired=TRUE, 
-              alternative = "greater")
-})
-
-tests %>% lapply(function(x){
-  x$p.value
-}) %>%
-  as.data.frame %>% 
-  t %>%
-  as.data.frame %>%
-  set_colnames("p") %>%
-  rownames_to_column("comparison") %>%
-  mutate(fdr = p.adjust(p, method = "fdr"),
-         sig = fdr < 0.05)%>%View
+# tests <- indivResults %>% lapply(function(x) {
+#   wilcox.test(x$logfc_mature, 
+#               x$logfc_unspliced, 
+#               paired=TRUE, 
+#               alternative = "greater")
+# })
+# 
+# tests %>% lapply(function(x){
+#   x$p.value
+# }) %>%
+#   as.data.frame %>% 
+#   t %>%
+#   as.data.frame %>%
+#   set_colnames("p") %>%
+#   rownames_to_column("comparison") %>%
+#   mutate(fdr = p.adjust(p, method = "fdr"),
+#          sig = fdr < 0.05)%>%View
 
 ```
 
@@ -630,29 +634,234 @@ tResults <- indivResults %>%
         # df = fit$df.total[1]
       )  %>%
       mutate(
-        pt = pt(tstat, df, lower.tail = FALSE),
-        fdr = p.adjust(pt, "fdr")
+        # pt_stabilised = pt(tstat, df, lower.tail = FALSE),
+        # pt_unstabilised = pt(tstat, df, lower.tail = TRUE),
+        # fdr_stabilised = p.adjust(pt_stabilised, "fdr"),
+        # fdr_unstabilised = p.adjust(pt_unstabilised, "fdr")
+        pt = 2*pt(-abs(tstat), df),
+        fdr = p.adjust(pt, "fdr"),
+        stabilised = t > 0 & fdr < 0.05,
+        destabilised = t < 0 & fdr < 0.05
       ) %>%
       dplyr::select(
-        id, gene_name,diff, tstat, df, pt, fdr,
-        starts_with("logfc"), starts_with("s_")
+        id, gene_name,description, diff, tstat, df, pt, fdr, stabilised, destabilised,
+        starts_with("logfc"), starts_with("s_"), has3ire, has5ire
       ) %>%
       arrange(pt)
   }) %>%
   lapply(as_tibble)
+# saveRDS(tResults, here::here("R/Velocity/results/tResults.rds"))
+
+test <- tResults %>% lapply(
+  function(x){
+    x %>% 
+      dplyr::filter(fdr < 0.05) %>% 
+      dplyr::mutate(stability = case_when(
+        stabilised == TRUE ~ "stabilised",
+        stabilised == FALSE ~ "destabilised"
+      )) %>%
+      split.data.frame(f=.$stability)
+  }
+)
+
+test2 <- tResults %>% lapply(
+  function(x){
+    x %>% 
+      dplyr::filter(fdr < 0.05) %>% 
+      dplyr::mutate(stability = case_when(
+        stabilised == TRUE ~ "stabilised",
+        stabilised == FALSE ~ "destabilised"
+      )) %>%
+      dplyr::select(-stabilised, -destabilised)
+  }
+)
+test2$all = allRes
+test2 %>% openxlsx::write.xlsx(here("R/Velocity/results/allResults.xlsx"))
+test2 %>% saveRDS(here("R/Velocity/results/allResults.rds"))
+
+# Store results in a list
+results <- list()
+
+# Total numbers of significant stabilised and destabilised genes
+results$totals <- test %>% lapply(function(x){ 
+  x %>% 
+    lapply(function(y){ 
+      y %>% nrow
+      })
+  }) %>% 
+  do.call(rbind,.) %>%
+  as.data.frame%>% 
+  rownames_to_column("comparison") %>% 
+  as_tibble %>% tidyr::unnest(cols = c("destabilised", "stabilised"))
+
+# Number of 3' IRE genes which are significantly stabilised/destabilised
+results$ire3all <- test %>% lapply(function(x){
+  x %>%
+    lapply(function(y){
+      y %>% dplyr::filter(has3ire == TRUE) %>% nrow
+    })
+}) %>%
+  do.call(rbind,.) %>% 
+  as.data.frame %>%
+  rownames_to_column("comparison") %>%
+  as_tibble %>%
+  tidyr::unnest(cols = c("destabilised", "stabilised")) %>%
+  dplyr::rename(stabilised_3 = stabilised,
+                destabilised_3 = destabilised)
+
+# Number of 5' IRE genes which are significantly stabilised/destabilised
+results$ire5all <- test %>% lapply(function(x){
+  x %>%
+    lapply(function(y){
+      y %>% dplyr::filter(has5ire == TRUE) %>% nrow
+    })
+}) %>%
+  do.call(rbind,.) %>% 
+  as.data.frame %>%
+  rownames_to_column("comparison") %>%
+  as_tibble %>%
+  tidyr::unnest(cols = c("destabilised", "stabilised")) %>%
+    dplyr::rename(stabilised_5 = stabilised,
+                destabilised_5 = destabilised)
+
+allRes <- results$totals %>% inner_join(results$ire3all, by = "comparison") %>%
+  inner_join(results$ire5all, by = "comparison") 
 
 
+# ensembl_entrez <- annot %>% dplyr::select(gene_id, entrezid) %>% dplyr::filter(!is.na(entrezid)) %>% tidyr::unnest(entrezid) %>% distinct(gene_id, entrezid, .keep_all = TRUE) 
+# ids <- ensembl_entrez %>% dplyr::filter(gene_id %in% test$normoxia_6mth_mutant_vs_wt$stabilised$id ) %>% .$entrezid
+# universe <- ensembl_entrez %>% dplyr::filter(gene_id %in% rownames(dge)) %>% .$entrezid
+# 
+# goana(de = ids, species = "Dr",universe = universe) %>% topGO()
 
-# Calculate t statistic for sample sample size (n=32) & unequal variance
-# and df for each gene. 
-# The pt() function allows us to calculate the distribution function 
-# based on the t statistic and degrees of freedom. 
-calc <- all_s %>% mutate(t = (logfc_mature - logfc_unspliced) / 
-                              sqrt((s1^2 + s2^2)/32),
-                 df = (32-1)*(s1^2+s2^2)^2 / (s1^4 + s2^4) )  %>%
-  rowwise() %>%
-  mutate(pt = pt(t, df))
+
+#tResults <- readRDS(here::here("R/Velocity/results/tResults.rds"))
+
 ```
+
+- Create a figure of
+```{r}
+fig_mutantVWT_6mth <- test$normoxia_6mth_mutant_vs_wt$stabilised%>%
+  rbind(test$normoxia_6mth_mutant_vs_wt$destabilised)%>%
+  dplyr::filter(has3ire==TRUE) %>%
+  arrange(diff) %>%
+  dplyr::filter(!is.na(diff)) %>%
+  ggplot(aes(x = logfc_mature, xend = logfc_unspliced, 
+             y = factor(gene_name, 
+                        levels=unique(as.character(gene_name))), 
+             group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                  colour_xend = "orangered",
+                  colour = "grey50",
+                dot_guide = TRUE,
+                  size_x = 1.5, size_xend=1.5) + 
+    scale_x_continuous() +
+    labs(x=NULL, 
+         y=NULL) +
+    theme(plot.title = element_text(hjust=0.5, face="bold"),
+          aspect.ratio = 1,
+          panel.grid.minor=element_blank(),
+          panel.grid.major.y=element_blank(),
+          panel.grid.major.x=element_line(),
+          axis.ticks=element_blank(),
+          panel.border=element_blank(),
+          axis.text.y = element_text(lineheight = 10,size = 8)) 
+
+fig_mutantVWT_6mth %>% export::graph2pdf(here("R/Velocity/fig/fig_mutantVWT_6mth.pdf"))
+```
+
+```{r}
+fig_mutantVWT_24mth <- test$normoxia_24mth_mutant_vs_wt$stabilised%>%
+  rbind(test$normoxia_24mth_mutant_vs_wt$destabilised)%>%
+  dplyr::filter(has3ire==TRUE) %>%
+  arrange(diff) %>%
+  dplyr::filter(!is.na(diff)) %>%
+  ggplot(aes(x = logfc_mature, xend = logfc_unspliced, 
+             y = factor(gene_name, 
+                        levels=unique(as.character(gene_name))), 
+             group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                  colour_xend = "orangered",
+                  colour = "grey50",
+                dot_guide = TRUE,
+                  size_x = 1.5, size_xend=1.5) + 
+    scale_x_continuous() +
+    labs(x=NULL, 
+         y=NULL) +
+    theme(plot.title = element_text(hjust=0.5, face="bold"),
+          aspect.ratio = 1,
+          panel.grid.minor=element_blank(),
+          panel.grid.major.y=element_blank(),
+          panel.grid.major.x=element_line(),
+          axis.ticks=element_blank(),
+          panel.border=element_blank(),
+          axis.text.y = element_text(lineheight = 10,size = 8)) 
+
+fig_mutantVWT_24mth %>% export::graph2pdf(here("R/Velocity/fig/fig_mutantVWT_24mth.pdf"))
+```
+
+
+```{r}
+fig_youngHypoxia <- test$wt_6mth_hypoxia_vs_normoxia$stabilised%>%
+  rbind(test$wt_6mth_hypoxia_vs_normoxia$destabilised)%>%
+  dplyr::filter(has3ire==TRUE) %>%
+  arrange(diff) %>%
+  dplyr::filter(!is.na(diff)) %>%
+  ggplot(aes(x = logfc_mature, xend = logfc_unspliced, 
+             y = factor(gene_name, 
+                        levels=unique(as.character(gene_name))), 
+             group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                  colour_xend = "orangered",
+                  colour = "grey50",
+                dot_guide = TRUE,
+                  size_x = 1.5, size_xend=1.5) + 
+    scale_x_continuous() +
+    labs(x=NULL, 
+         y=NULL) +
+    theme(plot.title = element_text(hjust=0.5, face="bold"),
+          aspect.ratio = 1,
+          panel.grid.minor=element_blank(),
+          panel.grid.major.y=element_blank(),
+          panel.grid.major.x=element_line(),
+          axis.ticks=element_blank(),
+          panel.border=element_blank(),
+          axis.text.y = element_text(lineheight = 10,size = 8)) 
+
+export::graph2pdf(fig_youngHypoxia, here("R/Velocity/fig/fig_youngHypoxia.pdf"))
+```
+
+```{r fig.height=4, fig.width=2}
+fig_wtAging <- test$normoxia_wtAging$stabilised%>%
+  rbind(test$normoxia_wtAging$destabilised)%>%
+  dplyr::filter(has3ire==TRUE) %>%
+  arrange(diff) %>%
+  dplyr::filter(!is.na(diff)) %>%
+  ggplot(aes(x = logfc_mature, xend = logfc_unspliced, 
+             y = factor(gene_name, 
+                        levels=unique(as.character(gene_name))), 
+             group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                  colour_xend = "orangered",
+                  colour = "grey50",
+                dot_guide = TRUE,
+                  size_x = 1.5, size_xend=1.5) + 
+    scale_x_continuous() +
+    labs(x=NULL, 
+         y=NULL) +
+    theme(plot.title = element_text(hjust=0.5, face="bold"),
+          #aspect.ratio = ,
+          panel.grid.minor=element_blank(),
+          panel.grid.major.y=element_blank(),
+          panel.grid.major.x=element_line(),
+          axis.ticks=element_blank(),
+          panel.border=element_blank(),
+          axis.text.y = element_text(lineheight = 13,size = 8)) 
+fig_wtAging
+
+export::graph2pdf(fig_wtAging, here("R/Velocity/fig/fig_wtAging.pdf"))
+```
+
 
 ```{r}
 
@@ -668,5 +877,155 @@ calc <- all_s %>% mutate(t = (logfc_mature - logfc_unspliced) /
 #   rowwise() %>%
 #   mutate(pt = pt(t, df))
 
+```
+
+
+## Visualisation 2
+
+- Create dumbell plots to visualise the significant genes which are increased 
+in stability. 
+
+### 6 month old mutant vs wild type
+
+```{r}
+stabilityPlot1 <- tResults$normoxia_6mth_mutant_vs_wt %>%
+  arrange(diff) %>%
+  dplyr::filter(!is.na(diff)) %>%
+  #dplyr::mutate(gene_name = base::factor(gene_name, 
+  #                                 levels = as.character(gene_name))) %>%
+  dplyr::mutate(stabilised = fdr < 0.05) %>% 
+  dplyr::mutate(significant = stabilised %>% gsub(x=., pattern = "FALSE", replacement ="")) %>%
+    dplyr::mutate(significant = significant %>% gsub(x=., pattern = "TRUE", replacement = "*")) %>%
+  dplyr::mutate(gene_name = paste0(gene_name, significant)) %>% 
+  ggplot(aes(x = logfc_mature, xend = logfc_unspliced, y = gene_name, 
+             group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                  colour_xend = "orangered",
+                  colour = "grey50",
+                dot_guide = TRUE,
+                  size_x = 1.5, size_xend=1.5) + 
+    scale_x_continuous() +
+    labs(x=NULL, 
+         y=NULL) +
+    theme(plot.title = element_text(hjust=0.5, face="bold"),
+          aspect.ratio = 1,
+          panel.grid.minor=element_blank(),
+          panel.grid.major.y=element_blank(),
+          panel.grid.major.x=element_line(),
+          axis.ticks=element_blank(),
+          #legend.position="bottom",
+          panel.border=element_blank(),
+          axis.text.y = element_text(lineheight = 10,size = 6)) 
+
+stabilityPlot1
+# export::graph2ppt(stabilityPlot1, here::here("R/Velocity/fig/stabilityPlot1"))
+```
+
+### 24 month old mutant vs wild type
+
+```{r}
+stabilityPlot2 <- tResults$normoxia_24mth_mutant_vs_wt %>%
+  arrange(diff) %>%
+  dplyr::filter(!is.na(diff)) %>%
+  dplyr::mutate(gene_name = factor(gene_name, 
+                                   levels = as.character(gene_name))) %>%
+  dplyr::mutate(stabilised = fdr < 0.05) %>% 
+  dplyr::mutate(significant = stabilised %>% gsub(x=., pattern = "FALSE", replacement ="")) %>%
+    dplyr::mutate(significant = significant %>% gsub(x=., pattern = "TRUE", replacement = "*")) %>%
+  dplyr::mutate(gene_name = paste0(gene_name, significant)) %>% 
+  ggplot(aes(x = logfc_mature, xend = logfc_unspliced, y = gene_name, 
+             group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                  colour_xend = "orangered",
+                  colour = "grey50",
+                dot_guide = TRUE,
+                  size_x = 1.5, size_xend=1.5) + 
+    scale_x_continuous() +
+    labs(x=NULL, 
+         y=NULL) +
+    theme(plot.title = element_text(hjust=0.5, face="bold"),
+          aspect.ratio = 1,
+          panel.grid.minor=element_blank(),
+          panel.grid.major.y=element_blank(),
+          panel.grid.major.x=element_line(),
+          axis.ticks=element_blank(),
+          #legend.position="bottom",
+          panel.border=element_blank(),
+          axis.text.y = element_text(lineheight = 10,size = 6)) 
+
+stabilityPlot2
+# export::graph2ppt(stabilityPlot2, here::here("R/Velocity/fig/stabilityPlot2"))
+```
+
+### wild type aging
+
+```{r fig.height=12, fig.width=6}
+stabilityPlot3 <- tResults$normoxia_wtAging %>%
+  arrange(diff) %>%
+  dplyr::filter(!is.na(diff)) %>%
+  dplyr::mutate(gene_name = factor(gene_name, 
+                                   levels = as.character(gene_name))) %>%
+  dplyr::mutate(stabilised = fdr < 0.05) %>% 
+  dplyr::mutate(significant = stabilised %>% gsub(x=., pattern = "FALSE", replacement ="")) %>%
+    dplyr::mutate(significant = significant %>% gsub(x=., pattern = "TRUE", replacement = "*")) %>%
+  dplyr::mutate(gene_name = paste0(gene_name, significant)) %>% 
+  ggplot(aes(x = logfc_mature, xend = logfc_unspliced, y = gene_name, 
+             group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                  colour_xend = "orangered",
+                  colour = "grey50",
+                dot_guide = TRUE,
+                  size_x = 1.5, size_xend=1.5) + 
+    scale_x_continuous() +
+    labs(x=NULL, 
+         y=NULL) +
+    theme(plot.title = element_text(hjust=0.5, face="bold"),
+          aspect.ratio = 2,
+          panel.grid.minor=element_blank(),
+          panel.grid.major.y=element_blank(),
+          panel.grid.major.x=element_line(),
+          axis.ticks=element_blank(),
+          #legend.position="bottom",
+          panel.border=element_blank(),
+          axis.text.y = element_text(lineheight = 10,size = 6)) 
+
+stabilityPlot3
+export::graph2ppt(stabilityPlot3, here::here("R/Velocity/fig/stabilityPlot3"))
+```
+
+### hypoxia vs normoxia in 6 months
+
+```{r fig.height=12, fig.width=6}
+stabilityPlot4 <- tResults$wt_6mth_hypoxia_vs_normoxia %>%
+  arrange(diff) %>%
+  dplyr::filter(!is.na(diff)) %>%
+  dplyr::mutate(gene_name = factor(gene_name, 
+                                   levels = as.character(gene_name))) %>%
+  dplyr::mutate(stabilised = fdr < 0.05) %>% 
+  dplyr::mutate(significant = stabilised %>% gsub(x=., pattern = "FALSE", replacement ="")) %>%
+    dplyr::mutate(significant = significant %>% gsub(x=., pattern = "TRUE", replacement = "*")) %>%
+  dplyr::mutate(gene_name = paste0(gene_name, significant)) %>% 
+  ggplot(aes(x = logfc_mature, xend = logfc_unspliced, y = gene_name, 
+             group = gene_name)) +
+  geom_dumbbell(colour_x="cornflowerblue",
+                  colour_xend = "orangered",
+                  colour = "grey50",
+                dot_guide = TRUE,
+                  size_x = 1.5, size_xend=1.5) + 
+    scale_x_continuous() +
+    labs(x=NULL, 
+         y=NULL) +
+    theme(plot.title = element_text(hjust=0.5, face="bold"),
+          aspect.ratio = 2,
+          panel.grid.minor=element_blank(),
+          panel.grid.major.y=element_blank(),
+          panel.grid.major.x=element_line(),
+          axis.ticks=element_blank(),
+          #legend.position="bottom",
+          panel.border=element_blank(),
+          axis.text.y = element_text(lineheight = 10,size = 6)) 
+
+stabilityPlot4
+export::graph2ppt(stabilityPlot4, here::here("R/Velocity/fig/stabilityPlot4"))
 ```
 

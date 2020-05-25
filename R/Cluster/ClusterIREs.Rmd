@@ -1,0 +1,373 @@
+---
+title: "Clustering of IRE gene sets"
+output: html_notebook
+---
+```{r, include = FALSE, echo=FALSE}
+library(here)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(reshape2)
+library(tibble)
+library(AnnotationHub)
+library(readr)
+library(openxlsx)
+```
+
+```{r}
+# Load human gene annotations
+ah <- AnnotationHub()
+ ah %>%
+   subset(grepl("sapiens", species)) %>%
+   subset(rdataclass == "EnsDb")
+ensDb <- ah[["AH64923"]] # Ensembl release 94
+
+genes <- genes(ensDb)
+transcripts <- transcripts(ensDb)
+
+genes <- as.data.frame(genes)
+transcripts <- as.data.frame(transcripts)
+
+head(genes)
+head(transcripts) #tx_name is transcript id and gene_id is gene id. 
+```
+
+
+## Background
+
+- Aim is to find clusters / subgroups in the IRE gene sets so that we can 
+test these clusters for differential regulation (e.g. promoter 
+enrichment analysis). 
+
+### Import IRE gene sets
+
+- The IRE gene sets for each species are imported below. 
+
+```{r}
+zebrafishIreGenes <- readRDS(here::here("R/IREGenes/data/zebrafishIreGenes.rds"))
+humanIreGenes<-readRDS(here::here("R/IREGenes/data/human_ireGenes.rds"))
+mouseIreGenes <- readRDS(here::here("R/Mouse/data/mouse_ireSets.rds"))
+```
+
+### Import Data Objects from cell line dataset
+
+- The cell line dataset involves two treatments, iron deficiency and 
+iron overload. 
+
+- We will firstly import the DE probesets / genes from DE analysis of this 
+dataset (see `IronOverload.Rmd` for details on analysis). 
+
+- Goal here is to extract some potential "marker genes" which we can test 
+in the other human dataset we have (Mayo RNA-seq dataset). 
+
+```{r}
+fitresults <- readRDS(here("R/IronDepleted/data/cellLine_3573/fitresults.rds"))
+
+actualDe <- list(
+  IronOverload = fitresults %>% 
+    dplyr::filter(p.value.adj.IronOverload <= 0.05)%>%
+    dplyr::distinct() %>%
+    dplyr::left_join(transcripts[, c("tx_name","gene_id")], by = c("ENSEMBL_ID"="tx_name")) %>% 
+    dplyr::mutate(hasIRE = case_when(
+      gene_id %in% humanIreGenes$ire3_all ~ "has_3ire",
+      gene_id %in% humanIreGenes$ire5_all ~ "has_5ire"
+    )),
+  IronDeficiency = fitresults %>% 
+    dplyr::filter(p.value.adj.IronDeficiency <= 0.05) %>%
+    dplyr::distinct() %>%
+    dplyr::left_join(transcripts[, c("tx_name","gene_id")], by = c("ENSEMBL_ID"="tx_name")) %>%
+    dplyr::mutate(hasIRE = case_when(
+      gene_id %in% humanIreGenes$ire3_all ~ "has_3ire",
+      gene_id %in% humanIreGenes$ire5_all ~ "has_5ire"
+    ))
+)
+# 1. DE genes for iron deficiency and overload:
+actualDe %>% saveRDS(here("R/IronDepleted/data/cellLine_3573/deGenes.rds"))
+actualDe %>% write.xlsx(here("R/IronDepleted/data/cellLine_3573/deGenes.xlsx"))
+
+# 2. DE genes in both
+incommon <- intersect(actualDe$IronOverload$NAME, actualDe$IronDeficiency$NAME)
+commonGenes <- fitresults %>% dplyr::filter(NAME %in% incommon) %>%
+  dplyr::left_join(transcripts[, c("tx_name","gene_id")], by = c("ENSEMBL_ID"="tx_name")) %>%
+  dplyr::mutate(hasIRE = case_when(
+      gene_id %in% humanIreGenes$ire3_all ~ "has_3ire",
+      gene_id %in% humanIreGenes$ire5_all ~ "has_5ire"
+    )) 
+View(commonGenes)
+commonGenes  %>% saveRDS(here("R/IronDepleted/data/cellLine_3573/commonGenes.rds"))
+commonGenes %>% write.xlsx(here("R/IronDepleted/data/cellLine_3573/commonGenes.xlsx"))
+
+
+# 3. Genes which are decently up or down in the iron overload or 
+# deficiency treatments (not exactly DE though) and in opposite directions. 
+de <- list(
+  IronOverload = fitresults %>% 
+    dplyr::filter(t.IronOverload > 2 | t.IronOverload < -2)%>%
+    dplyr::distinct() %>%
+    dplyr::left_join(transcripts[, c("tx_name","gene_id")], by = c("ENSEMBL_ID"="tx_name")),
+  IronDeficiency = fitresults %>% 
+    dplyr::filter(t.IronDeficiency > 2 | t.IronDeficiency < -2) %>%
+    dplyr::distinct() %>%
+    dplyr::left_join(transcripts[, c("tx_name","gene_id")], by = c("ENSEMBL_ID"="tx_name"))
+)
+
+# Extract genes which are going in opposite directions in iron overload 
+# and deficiency, and indicate whether they have a predicted 3' or 5' IRE. 
+oppositeGenes <- list(
+  IronOverload_up = de$IronOverload %>% 
+    dplyr::filter(t.IronOverload > 2 & t.IronDeficiency < -2) %>%
+    dplyr::mutate(hasIRE = case_when(
+      gene_id %in% humanIreGenes$ire3_all ~ "has_3ire",
+      gene_id %in% humanIreGenes$ire5_all ~ "has_5ire"
+    )),
+  IronDeficiency_up = de$IronDeficiency %>% 
+    dplyr::filter(t.IronDeficiency > 2 & t.IronOverload < -2) %>%
+    dplyr::mutate(hasIRE = case_when(
+      gene_id %in% humanIreGenes$ire3_all ~ "has_3ire",
+      gene_id %in% humanIreGenes$ire5_all ~ "has_5ire"
+    ))
+)
+oppositeGenes %>% lapply(dim) # 208 for iron overload and 266 for iron deficiency 
+
+# 4. Same but for genes with IREs only. 
+oppositeGenes_ire <- oppositeGenes %>% lapply(function(x){
+  x %>% dplyr::filter(!is.na(hasIRE) ) 
+}) 
+
+oppositeGenes_ire %>% str
+
+oppositeGenes %>% saveRDS(here("R/IronDepleted/data/cellLine_3573/oppositeGenes.rds"))
+oppositeGenes %>% write.xlsx(here("R/IronDepleted/data/cellLine_3573/oppositeGenes.xlsx"))
+
+oppositeGenes_ire %>% saveRDS(here("R/IronDepleted/data/cellLine_3573/oppositeGenes_ire.rds"))
+oppositeGenes_ire %>% write.xlsx(here("R/IronDepleted/data/cellLine_3573/oppositeGenes_ire.xlsx"))
+
+```
+
+### Import the test dataset - human Mayo Clinic
+
+```{r fig.height=20}
+mayo_DGE <- readRDS(here("R/GSEA/data/human/mayo_DGE.rds"))
+
+# cerebellum
+# Testing genes which are UP in iron deficiency and 
+# DOWN in iron overload (and they also have IREs)
+mayo_DGE %>% cpm(log=TRUE) %>% as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>% 
+  dplyr::filter(ensembl_gene_id %in% oppositeGenes_ire$IronDeficiency_up$gene_id) %>%
+  melt %>%
+  left_join(genes[, c("ensembl_gene_id","external_gene_name")]) %>%
+  left_join(mayo_DGE$samples, by = c("variable"="SampleID")) %>%
+  dplyr::filter(Tissue == "Cerebellum")%>%
+  dplyr::filter(Diagnosis %in% c("AD", "Control")) %>%
+  ggplot(aes(x = AgeAtDeath, y = value, colour = Diagnosis)) +
+  #geom_boxplot() +
+  geom_point() +
+  geom_smooth(aes(fill = Diagnosis), alpha=0.2) + 
+  scale_colour_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  scale_fill_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  facet_wrap(~external_gene_name, scales = "free_y")
+
+# Same as above, but opposite (genes down in iron deficiency and up 
+# in iron overload )
+mayo_DGE %>% cpm(log=TRUE) %>% as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>% 
+  dplyr::filter(ensembl_gene_id %in% oppositeGenes_ire$IronOverload_up$gene_id) %>%
+  melt %>%
+  left_join(genes[, c("ensembl_gene_id","external_gene_name")]) %>%
+  left_join(mayo_DGE$samples, by = c("variable"="SampleID")) %>%
+  dplyr::filter(Tissue == "Cerebellum")%>%
+  dplyr::filter(Diagnosis %in% c("AD", "Control")) %>%
+  ggplot(aes(x = AgeAtDeath, y = value, colour = Diagnosis)) +
+  #geom_boxplot() +
+  geom_point() +
+  geom_smooth(aes(fill = Diagnosis), alpha=0.2) + 
+  scale_colour_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  scale_fill_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  facet_wrap(~external_gene_name, scales = "free_y")
+
+# temporal cortex
+# Testing genes which are UP in iron deficiency and 
+# DOWN in iron overload (and they also have IREs)
+mayo_DGE %>% cpm(log=TRUE) %>% as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>% 
+  dplyr::filter(ensembl_gene_id %in% oppositeGenes_ire$IronDeficiency_up$gene_id) %>%
+  melt %>%
+  left_join(genes[, c("ensembl_gene_id","external_gene_name")]) %>%
+  left_join(mayo_DGE$samples, by = c("variable"="SampleID")) %>%
+  dplyr::filter(Tissue == "TemporalCortex")%>%
+  dplyr::filter(Diagnosis %in% c("AD", "Control")) %>%
+  ggplot(aes(x = AgeAtDeath, y = value, colour = Diagnosis)) +
+  #geom_boxplot() +
+  geom_point() +
+  geom_smooth(aes(fill = Diagnosis), alpha=0.2) + 
+  scale_colour_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  scale_fill_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  facet_wrap(~external_gene_name, scales = "free_y")
+
+# Same as above, but opposite (genes down in iron deficiency and up 
+# in iron overload )
+mayo_DGE %>% cpm(log=TRUE) %>% as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>% 
+  dplyr::filter(ensembl_gene_id %in% oppositeGenes_ire$IronOverload_up$gene_id) %>%
+  melt %>%
+  left_join(genes[, c("ensembl_gene_id","external_gene_name")]) %>%
+  left_join(mayo_DGE$samples, by = c("variable"="SampleID")) %>%
+  dplyr::filter(Tissue == "TemporalCortex")%>%
+  dplyr::filter(Diagnosis %in% c("AD", "Control")) %>%
+  ggplot(aes(x = AgeAtDeath, y = value, colour = Diagnosis)) +
+  #geom_boxplot() +
+  geom_point() +
+  geom_smooth(aes(fill = Diagnosis), alpha=0.2) + 
+  scale_colour_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  scale_fill_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  facet_wrap(~external_gene_name, scales = "free_y")
+
+
+
+```
+
+
+
+
+
+```{r}
+# Expression of known marker genes
+plot_markerGenes <- mayo_DGE %>% cpm(log=TRUE) %>% as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>% 
+  melt %>%
+  left_join(genes[, c("ensembl_gene_id","external_gene_name")]) %>%
+  dplyr::filter(external_gene_name %in% c("TFRC","TF","TFR2","SLC11A2")) %>%
+  left_join(mayo_DGE$samples, by = c("variable"="SampleID")) %>%
+  dplyr::filter(Tissue == "Cerebellum")%>%
+  dplyr::filter(Diagnosis %in% c("AD", "Control")) %>%
+  ggplot(aes(x = AgeAtDeath, y = value, colour = Diagnosis)) +
+  #geom_boxplot() +
+  geom_point(size=0.5) +
+  geom_smooth(aes(fill = Diagnosis), alpha=0.2) + 
+  scale_colour_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  scale_fill_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  facet_wrap(~external_gene_name, scales = "free_y") +
+  labs(x = "Age", y = "Gene expression (log2 cpm)")
+plot_markerGenes
+
+plot_markerGenes %>% export::graph2pdf(here::here("R/MarkerGenes/fig/knownMarkers.pdf"))
+```
+
+```{r}
+plot_markerGenes_TC <- mayo_DGE %>% cpm(log=TRUE) %>% as.data.frame %>%
+  rownames_to_column("ensembl_gene_id") %>% 
+  melt %>%
+  left_join(genes[, c("ensembl_gene_id","external_gene_name")]) %>%
+  dplyr::filter(external_gene_name %in% c("TFRC","TF","TFR2","SLC11A2")) %>%
+  left_join(mayo_DGE$samples, by = c("variable"="SampleID")) %>%
+  dplyr::filter(Tissue == "TemporalCortex")%>%
+  dplyr::filter(Diagnosis %in% c("AD", "Control")) %>%
+  ggplot(aes(x = AgeAtDeath, y = value, colour = Diagnosis)) +
+  #geom_boxplot() +
+  geom_point(size=0.5) +
+  geom_smooth(aes(fill = Diagnosis), alpha=0.2) + 
+  scale_colour_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  scale_fill_manual(values = c("gray50","red","DodgerBlue", "MediumSeaGreen")) +
+  facet_wrap(~external_gene_name, scales = "free_y") +
+  labs(x = "Age", y = "Gene expression (log2 cpm)")
+plot_markerGenes_TC
+
+plot_markerGenes_TC %>% export::graph2pdf(here::here("R/MarkerGenes/fig/knownMarkers_TC.pdf"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+Ideas
+
+- Cluster based on expression patterns (cons: need a representative
+dataset). 
+
+- Cluster based on inclusion in existing gene sets (cons: many are not 
+included in existing gene sets). 
+
+- Combine the two?
+
+### Human data
+
+- First I ran the "IronOverload.Rmd" notebook. 
+
+```{r}
+genesList <- write_fit %>% rownames_to_column("gene") %>%
+  dplyr::mutate(
+  ire = case_when(
+    gene %in% humanIreGenes$ire3_all ~ "has_3ire",
+    gene %in% humanIreGenes$ire5_all ~ "has_5ire"
+  )
+) %>% 
+  dplyr::filter(ire == "has_3ire",
+                t.IronDeficiency > 2) 
+```
+
+
+```{r}
+ire3allgeneexp <- colExprs %>% as.data.frame %>% 
+  rownames_to_column("ENSEMBL") %>% 
+  dplyr::filter(ENSEMBL %in% humanIreGenes$ire3_all)
+
+pca <- ire3allgeneexp %>% column_to_rownames("ENSEMBL") %>%
+  prcomp
+
+summary(pca) # PC1: 68.7%, PC2: 8.2%
+
+pca_plot <- pca$x %>% as.data.frame %>% 
+  rownames_to_column("gene") %>% 
+  mutate(cluster =case_when(
+    gene %in% rownames(clusters$cluster1) ~ "cluster_1",
+    gene %in% rownames(clusters$cluster2) ~ "cluster_2",
+    gene %in% rownames(clusters$cluster3) ~ "cluster_3",
+    gene %in% rownames(clusters$cluster4) ~ "cluster_4"
+  ))%>%
+  dplyr::mutate(geneList = gene %in% genesList$gene) %>%
+  ggplot(aes(x = PC1, y = PC2, colour = geneList)) + 
+  geom_point(size=1, alpha=0.5) + 
+  theme(aspect.ratio = 1) +
+  labs(x = "Principal Component 1 (68.7%)", 
+       y = "Principal Component 2 (8.2%)")
+pca_plot
+
+clusters <- apclust@clusters %>% lapply(as.data.frame) %>% set_names(paste0("cluster",1:4))
+
+
+  mutate(
+    ire = case_when(
+      id < 16 ~ " ",
+      id == 18 ~ " ",
+      id == 16 ~ "3",
+      id == 17 ~ "5",
+      label %in% ireGenes$ire3_all ~ "3",
+      label %in% ireGenes$ire5_all ~ "5",
+      !(label %in% allIREGenes) ~ "no IRE"
+    )
+```
+
+```{r}
+mat <- ire3allgeneexp %>% column_to_rownames("ENSEMBL")
+
+simMatrix <-  mat %>% 
+  corSimMat(signed=TRUE)
+
+apclust <- apclusterK(simMatrix, K=4)
+
+heatmap(apclust, simMatrix)
+
+
+apres <- apcluster(negDistMat(r=2), mat)
+
+plot(apres, mat)
+```
+

@@ -37,6 +37,7 @@ combinedGSEA <- function(v, idx, design, contrasts){
       # For each contrast, we need to extract out a ranked list of genes for
       # fgsea, ranked by t-statistic for DE in that particular comparison.
       fgsea_ranks <- topTable(fit, coef = x, number = Inf) %>% 
+        rownames_to_column("ensembl_gene_id") %>%
         dplyr::arrange(t)
       fgsea_ranks <- fgsea_ranks$t %>% set_names(fgsea_ranks$ensembl_gene_id)
       
@@ -92,7 +93,7 @@ combinedGSEA <- function(v, idx, design, contrasts){
     lapply(function(x){
       x %>% do.call("rbind", .) %>%
         dplyr::group_by(Geneset) %>%
-        dplyr::summarise(wilkinsonp = metap::wilkinsonp(pval, r = 1)$p) %>%
+        dplyr::summarise(wilkinsonp = metap::wilkinsonp(pval, r = 2)$p) %>%
         dplyr::mutate(fdr = p.adjust(wilkinsonp, method = "fdr"),
                       bonferroni = p.adjust(wilkinsonp, method = "bonferroni"))%>%
         dplyr::arrange(wilkinsonp)
